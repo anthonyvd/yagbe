@@ -23,7 +23,17 @@ impl Ppu {
     if memory[0xFF44] == 0 {
       // new frame
       self.frame_count += 1;
-      return Some(Framebuffer::new(160, 144, if self.frame_count % 60 < 30 { 0x00 } else { 0xFF }));
+      let mut frame = Framebuffer::new(160, 144, 0xFF);
+
+      // TODO: This is incorrect, the full frame shouldn't be generated at the end of the cycles.
+      for tile_x in 0..20 {
+        for tile_y in 0..18 {
+          let tile_id = memory[0x9800 + tile_y * 32 + tile_x];
+          frame.draw_tile(memory, tile_id, (tile_x * 8).into(), (tile_y * 8).into());
+        }
+      }
+
+      return Some(frame);
     }
 
     return None;

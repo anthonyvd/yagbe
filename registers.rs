@@ -44,51 +44,51 @@ impl Registers {
   }
 
   pub fn z_set(&self) -> bool {
-    return (self.af & 0b10000000) > 0;
+    return (self.af & 0b00000000_10000000) > 0;
   }
 
   pub fn n_set(&self) -> bool {
-    return (self.af & 0b01000000) > 0;
+    return (self.af & 0b00000000_01000000) > 0;
   }
 
   pub fn h_set(&self) -> bool {
-    return (self.af & 0b00100000) > 0;
+    return (self.af & 0b00000000_00100000) > 0;
   }
 
   pub fn c_set(&self) -> bool {
-    return (self.af & 0b00010000) > 0;
+    return (self.af & 0b00000000_00010000) > 0;
   }
 
   pub fn set_z(&mut self) {
-    self.af |= 0b10000000;
+    self.af |= 0b00000000_10000000;
   }
 
   pub fn set_n(&mut self) {
-    self.af |= 0b01000000;
+    self.af |= 0b00000000_01000000;
   }
 
   pub fn set_h(&mut self) {
-    self.af |= 0b00100000;
+    self.af |= 0b00000000_00100000;
   }
 
   pub fn set_c(&mut self) {
-    self.af |= 0b00010000;
+    self.af |= 0b00000000_00010000;
   }
 
   pub fn reset_z(&mut self) {
-    self.af &= 0b01111111;
+    self.af &= 0b11111111_01111111;
   }
 
   pub fn reset_n(&mut self) {
-    self.af &= 0b10111111;
+    self.af &= 0b11111111_10111111;
   }
 
   pub fn reset_h(&mut self) {
-    self.af &= 0b11011111;
+    self.af &= 0b11111111_11011111;
   }
 
   pub fn reset_c(&mut self) {
-    self.af &= 0b11101111;
+    self.af &= 0b11111111_11101111;
   }
 
   pub fn read_byte(&self, r: RegisterName) -> u8 {

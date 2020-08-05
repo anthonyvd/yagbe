@@ -104,9 +104,8 @@ impl Cpu {
 
   pub fn tick(&mut self, memory: &mut Memory) {
     // This currently runs each instruction in a single simulated TCycle, which isn't accurate.
-
-    /*
-    if self.registers.pc == 0x27DA {
+/*
+    if self.registers.pc == 0x27CD || self.registers.pc == 0x27CE || self.registers.pc == 0x27CF || self.registers.pc == 0x27D0 {
       self.dump_registers();
       for i in 0x8000..0x8000 + 16 {
         println!("byte {:04X}", memory[i]);

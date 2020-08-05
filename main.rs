@@ -6,8 +6,7 @@ mod utils;
 mod ppu;
 mod memory;
 mod framebuffer;
-mod main_display;
-mod framebuffer_bundle;
+mod display;
 
 use cartridge::Cartridge;
 use std::path::Path;
@@ -15,8 +14,7 @@ use cpu::Cpu;
 use ppu::Ppu;
 use memory::Memory;
 use framebuffer::Framebuffer;
-use framebuffer_bundle::FramebufferBundle;
-use main_display::MainDisplay;
+use display::Display;
 use std::time::Instant;
 
 use sdl2::event::Event;
@@ -32,26 +30,27 @@ fn main() -> Result<(), String>  {
 
   let sdl_context = sdl2::init().unwrap();
   let video_subsystem = sdl_context.video().unwrap();
-  let mut tilemap = MainDisplay::new(&video_subsystem, "Tiles", 160, 160);
+  //let mut tilemap = Display::new(&video_subsystem, "Tiles", 160, 160);
+  let mut main_display = Display::new(&video_subsystem, "Main", 160, 144);
 
   let mut before = Instant::now();
   let mut event_pump = sdl_context.event_pump()?;
 
   'running: loop {
-    for event in event_pump.poll_iter() {
-        match event {
-            Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                break 'running
-            },
-            _ => {}
-        }
-    }
-
     cpu.tick(&mut memory);
     let possible_frame = ppu.tick(&mut memory);
 
     if possible_frame.is_some() {
-      // print!("Pre Frame {:?} ", before.elapsed());
+      for event in event_pump.poll_iter() {
+          match event {
+              Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                  break 'running
+              },
+              _ => {}
+          }
+      }
+
+      //print!("Pre Frame {:?} ", before.elapsed());
       let mut tiles_framebuffer = Framebuffer::new(160, 160, 0x00);
       
       for i in (0x8000..0x97FF).step_by(16) {
@@ -68,22 +67,25 @@ fn main() -> Result<(), String>  {
             let bit_mask = 0b10000000 >> j;
             let pix = (((msb & bit_mask) >> (7 - j)) << 1) | ((lsb & bit_mask) >> (7 - j));
 
-            tiles_framebuffer.pixels[(tile_col * 8 + j) as usize][(tile_row * 8 + row) as usize] =
-              match pix {
-                0b00 => 0xFF,
-                0b01 => 0xAA,
-                0b10 => 0x55,
-                0b11 => 0x00,
-                _ => unimplemented!(),
-              };
+            let p: sdl2::rect::Point = sdl2::rect::Point::new((tile_col * 8 + j).into(), (tile_row * 8 + row).into());
+            match pix {
+              0b00 => tiles_framebuffer.blank_pixels.push(p),
+              0b01 => tiles_framebuffer.light_pixels.push(p),
+              0b10 => tiles_framebuffer.medium_pixels.push(p),
+              0b11 => tiles_framebuffer.dark_pixels.push(p),
+              _ => unimplemented!(),
+            };
           }
         }
       }
 
-      tilemap.push_frame(tiles_framebuffer);
-      tilemap.display_frame();
-      // print!("Post Frame {:?}", before.elapsed());
-      // println!("");
+      //tilemap.push_frame(tiles_framebuffer);
+      //tilemap.display_frame();
+
+      main_display.push_frame(possible_frame.unwrap());
+      main_display.display_frame();
+      //print!("Post Frame {:?}", before.elapsed());
+      //println!("");
       before = Instant::now();
     }
   }

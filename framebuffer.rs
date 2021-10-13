@@ -10,7 +10,7 @@ pub struct Framebuffer {
 }
 
 impl Framebuffer {
-  pub fn new(width: usize, height: usize, clear_color: u8) -> Framebuffer {
+  pub fn new(width: usize, height: usize) -> Framebuffer {
     return Framebuffer { 
       blank_pixels: vec![], 
       light_pixels: vec![], 

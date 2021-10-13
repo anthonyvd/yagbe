@@ -625,7 +625,7 @@ impl Cpu {
     let byte = s.read_byte(memory, &self.registers);
 
     let add = (byte & 0b10000000) == 0;
-    let mut jump = 0; 
+    let jump; 
     if add { jump = byte as u16; } else { jump = (!byte).wrapping_add(1) as u16; };
 
     if add {

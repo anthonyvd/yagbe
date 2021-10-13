@@ -1,7 +1,6 @@
 use crate::framebuffer::Framebuffer;
 
 use sdl2::pixels::Color;
-use std::convert::TryInto;
 
 pub struct Display {
   c: sdl2::render::WindowCanvas,
@@ -37,16 +36,16 @@ impl Display {
       Some(frame) => {
         // TODO: we can probably just let this be the clear color
         self.c.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));
-        self.c.draw_points(&frame.blank_pixels[..]);
+        self.c.draw_points(&frame.blank_pixels[..]).unwrap();
 
         self.c.set_draw_color(Color::RGB(0xAA, 0xAA, 0xAA));
-        self.c.draw_points(&frame.light_pixels[..]);
+        self.c.draw_points(&frame.light_pixels[..]).unwrap();
 
         self.c.set_draw_color(Color::RGB(0x55, 0x55, 0x55));
-        self.c.draw_points(&frame.medium_pixels[..]);
+        self.c.draw_points(&frame.medium_pixels[..]).unwrap();
 
         self.c.set_draw_color(Color::RGB(0x00, 0x00, 0x00));
-        self.c.draw_points(&frame.dark_pixels[..]);
+        self.c.draw_points(&frame.dark_pixels[..]).unwrap();
 
         self.f = None;
       },

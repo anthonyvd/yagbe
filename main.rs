@@ -58,7 +58,6 @@ impl debugger::Debuggable for Console {
     return self.cpu.registers;
   }
 
-
   fn set_breakpoint(&mut self, b: debugger::Breakpoint) {
     self.breakpoints.insert(b.address);
   }
@@ -68,7 +67,7 @@ impl debugger::Debuggable for Console {
   }
 
   fn quit(&mut self) {
-
+    self.debug_state = DebugState::Quitting;
   }
 }
 

@@ -250,7 +250,7 @@ impl DebuggerBackend {
             DebuggerMessage::Resume => {
               target.resume();
             },
-            DebuggerMessage::Resume => {
+            DebuggerMessage::Quit => {
               target.quit();
             },
             _ => { unimplemented!(); }

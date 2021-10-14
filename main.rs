@@ -19,6 +19,7 @@ use display::Display;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+use std::collections::HashSet;
 
 //use std::time::Instant;
 
@@ -28,6 +29,14 @@ use sdl2::keyboard::Keycode;
 
 enum ConsoleSignal {
   Quit,
+  BreakpointHit(u16),
+}
+
+enum DebugState {
+  Running,
+  Resuming,
+  Stopped,
+  Quitting,
 }
 
 struct Console {
@@ -37,6 +46,9 @@ struct Console {
 
   main_display: display::Display,
   event_pump: sdl2::EventPump,
+
+  breakpoints: HashSet<u16>,
+  debug_state: DebugState,
 
   tx: mpsc::Sender<ConsoleSignal>,
 }
@@ -48,6 +60,14 @@ impl debugger::Debuggable for Console {
 
 
   fn set_breakpoint(&mut self, b: debugger::Breakpoint) {
+    self.breakpoints.insert(b.address);
+  }
+
+  fn resume(&mut self) {
+    self.debug_state = DebugState::Resuming;
+  }
+
+  fn quit(&mut self) {
 
   }
 }
@@ -57,13 +77,36 @@ impl Console {
     let cart = Cartridge::load(cart_path);
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
-    let main_display = Display::new(&video_subsystem, "Main", 160, 144);
+    let main_display = Display::new(&video_subsystem, "Main", 320, 288);
     let event_pump = sdl_context.event_pump().expect("start event_pump");
 
-    return Console { memory: Memory::new(&cart.data), cpu: Cpu::new(), ppu: Ppu::new(), tx: tx, main_display: main_display, event_pump: event_pump };
+    return Console { 
+      memory: Memory::new(&cart.data), 
+      cpu: Cpu::new(), ppu: Ppu::new(), 
+      tx: tx, 
+      main_display: main_display, 
+      event_pump: event_pump,
+      breakpoints: HashSet::new(),
+      debug_state: DebugState::Running,
+    };
   }
 
   pub fn tick(&mut self) -> bool {
+    match self.debug_state {
+      DebugState::Stopped => { 
+        thread::sleep(Duration::from_millis(100));
+        return true;
+      },
+      DebugState::Running => {
+        if self.breakpoints.contains(&self.cpu.registers.pc) {
+          self.debug_state = DebugState::Stopped;
+          return true;
+        }
+      },
+      DebugState::Resuming => { self.debug_state = DebugState::Running; },
+      DebugState::Quitting => { return false; },
+    }
+
     self.cpu.tick(&mut self.memory);
     let possible_frame = self.ppu.tick(&mut self.memory);
 
@@ -136,6 +179,7 @@ fn main() -> Result<(), String>  {
     match signal {
       Ok(signal) => match signal {
         ConsoleSignal::Quit => { break 'looping }
+        ConsoleSignal::BreakpointHit(addr) => {  }
       },
       Err(error) => match error {
         mpsc::TryRecvError::Empty => {},
@@ -143,7 +187,7 @@ fn main() -> Result<(), String>  {
       }
     }
 
-    thread::sleep(Duration::from_millis(200));
+    thread::sleep(Duration::from_millis(100));
     debugger_frontend.update();
     debugger_frontend.render();
   }

@@ -6,6 +6,9 @@ use std::io;
 use std::sync::mpsc;
 use std::thread;
 
+use lazy_static::lazy_static;
+use regex::Regex;
+
 use tui::Terminal;
 use tui::backend::TermionBackend;
 use termion::input::TermRead;
@@ -19,18 +22,23 @@ use tui::layout::{Layout, Constraint, Direction};
 use tui::text::{Span, Spans};
 
 pub struct Breakpoint {
-  address: u16,
+  pub address: u16,
 }
 
 pub enum DebuggerMessage {
   RequestRegisters,
   RespondRegisters(Registers),
   SetBreakpoint(Breakpoint),
+  BreakpointHit(Breakpoint),
+  Resume,
+  Quit,
 }
 
 pub trait Debuggable {
   fn get_registers(&self) -> Registers;
   fn set_breakpoint(&mut self, b: Breakpoint);
+  fn resume(&mut self);
+  fn quit(&mut self);
 }
 
 pub struct DebuggerFrontend {
@@ -96,11 +104,32 @@ impl DebuggerFrontend {
       self.tx.send(DebuggerMessage::RequestRegisters).expect("sending a RequestRegisters");
     }
 
+    lazy_static! {
+      static ref BP_SET_RE: Regex = Regex::new("^b ([a-fA-F0-9]{4})$").unwrap();
+      static ref RESUME_RE: Regex = Regex::new("^r$").unwrap();
+      static ref QUIT_RE: Regex = Regex::new("^q$").unwrap();
+    }
+
     'looping: loop {
       let data = self.stdin_rx.try_recv();
       if let Ok(key) = data {
           match key {
-            Key::Char('\n') => { /* todo: flush command */ },
+            Key::Char('\n') => {
+              for cap in BP_SET_RE.captures_iter(self.command_buffer.trim()) {
+                let addr = u16::from_str_radix(&cap[1], 16).unwrap();
+                self.tx.send(DebuggerMessage::SetBreakpoint(Breakpoint { address: addr })).unwrap();
+              }
+
+              if RESUME_RE.is_match(self.command_buffer.trim()) {
+                self.tx.send(DebuggerMessage::Resume).unwrap();
+              }
+
+              if QUIT_RE.is_match(self.command_buffer.trim()) {
+                self.tx.send(DebuggerMessage::Quit).unwrap();
+              }
+
+              self.command_buffer = String::from("");
+            },
             Key::Backspace => { self.command_buffer.pop(); },
             Key::Esc => { self.command_buffer = String::from(""); }
             Key::Char(c) => { self.command_buffer.push(c); },
@@ -119,13 +148,11 @@ impl DebuggerFrontend {
     self.terminal.draw(|f| {
       let main_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
         .constraints([Constraint::Percentage(10),Constraint::Percentage(80),Constraint::Percentage(10),].as_ref())
         .split(f.size());
 
       let middle_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .margin(1)
         .constraints([Constraint::Percentage(60),Constraint::Percentage(40),].as_ref())
         .split(main_chunks[1]);
 
@@ -184,9 +211,14 @@ impl DebuggerFrontend {
       let p = Paragraph::new(text);
       f.render_widget(p, registers_chunks[3]);
 
+      let input_chunk = Layout::default()
+        .direction(Direction::Horizontal)
+        .margin(1)
+        .constraints([Constraint::Percentage(100)].as_ref())
+        .split(main_chunks[2]);
       let text = vec![ Spans::from(Span::raw(command_buffer)), ];
       let p = Paragraph::new(text);
-      f.render_widget(p, main_chunks[2]);
+      f.render_widget(p, input_chunk[0]);
 
     }).expect("can draw terminal");
   }
@@ -214,6 +246,12 @@ impl DebuggerBackend {
             },
             DebuggerMessage::SetBreakpoint(b) => {
               target.set_breakpoint(b);
+            },
+            DebuggerMessage::Resume => {
+              target.resume();
+            },
+            DebuggerMessage::Resume => {
+              target.quit();
             },
             _ => { unimplemented!(); }
           }

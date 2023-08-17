@@ -16,6 +16,7 @@ impl Ppu {
     if self.lx > 455 {
       self.lx = 0;
       memory[0xFF44] = (memory[0xFF44] + 1) % 154;
+      memory[0xFF45] = (memory[0xFF45] + 1) % 154;
     }
 
     self.lx += 1;
@@ -26,6 +27,7 @@ impl Ppu {
       let mut frame = Framebuffer::new(160, 144);
 
       // TODO: This is incorrect, the full frame shouldn't be generated at the end of the cycles.
+      // TODO: This isn't how this work, see FIFOs on pandocs
       for tile_x in 0..20 {
         for tile_y in 0..18 {
           let tile_id = memory[0x9800 + tile_y * 32 + tile_x];

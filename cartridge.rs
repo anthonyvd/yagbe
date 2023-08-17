@@ -18,7 +18,7 @@ impl Cartridge {
     let data = res.unwrap();
     
     // We only support ROM-only carts for now.
-    assert_eq!(0x00, data[0x0147]);
+    //assert_eq!(0x00, data[0x0147]);
 
     return Cartridge {
       // Title is from 0x0134 to 0x0143 inclusive.

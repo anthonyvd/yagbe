@@ -111,9 +111,16 @@ impl Cpu {
         println!("byte {:04X}", memory[i]);
       }
     }*/
+
+    // TODO: change this so that the PPU sets the correct bit in 0xff0f and read that here
+    // Also see pandocs about timing
+    if memory[0xFF44] == 144 && self.ime /*&& (memory[0xFFFF] & 0x01 == 1)*/ {
+      self.ime = false;
+      self.call(Source::from_address(0x40).read_word(memory, &self.registers), memory);
+    }
+
     // println!("Executing instruction at 0x{:04X}", self.registers.pc);
     let instr: u8 = self.pc_read(memory);
-
 
     // If it's the CB prefix byte, fetch the next one
     if instr == 0xCB {
@@ -212,7 +219,10 @@ impl Cpu {
       0x07 => {
         self.rlc(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), memory);
       },
-
+      0x08 => {
+        let arg = self.pc_read_word(memory);
+        self.ld16(Dest::from_address(arg), Source::from_register(RegisterName::Sp), memory);
+      },
       0x0B => self.dec16(Dest::from_register(RegisterName::Bc), Source::from_register(RegisterName::Bc), memory),
       0x0C => self.inc(Dest::from_register(RegisterName::C), Source::from_register(RegisterName::C), memory),
       0x0D => self.dec(Dest::from_register(RegisterName::C), Source::from_register(RegisterName::C), memory),
@@ -267,6 +277,10 @@ impl Cpu {
       0x23 => self.inc16(Dest::from_register(RegisterName::Hl), Source::from_register(RegisterName::Hl), memory),
       0x24 => self.inc(Dest::from_register(RegisterName::H), Source::from_register(RegisterName::H), memory),
       0x25 => self.dec(Dest::from_register(RegisterName::H), Source::from_register(RegisterName::H), memory),
+      0x26 => {
+        let arg = self.pc_read(memory);
+        self.ld(Dest::from_register(RegisterName::H), Source::from_immediate_byte(arg), memory);
+      },
       0x28 => {
         let arg = self.pc_read(memory);
         if self.registers.z_set() {
@@ -283,6 +297,12 @@ impl Cpu {
       0x2D => self.dec(Dest::from_register(RegisterName::L), Source::from_register(RegisterName::L), memory),
 
       0x2F => self.cpl(),
+      0x30 => {
+        let arg = self.pc_read(memory);
+        if !self.registers.c_set() {
+          self.jr(Source::from_immediate_byte(arg), memory);
+        }
+      },
       0x31 => {
         let arg = self.pc_read_word(memory);
         self.ld16(Dest::from_register(RegisterName::Sp), Source::from_immediate(arg), memory);
@@ -297,6 +317,20 @@ impl Cpu {
       0x36 => {
         let arg = self.pc_read(memory);
         self.ld(Dest::from_address(self.registers.hl), Source::from_immediate_byte(arg), memory);
+      },
+      0x37 => {
+        self.registers.set_c();
+      },
+      0x38 => {
+        let arg = self.pc_read(memory);
+        if self.registers.c_set() {
+          self.jr(Source::from_immediate_byte(arg), memory);
+        }
+      },
+      0x39 => {
+        self.add16(Dest::from_register(RegisterName::Hl), 
+                   Source::from_register(RegisterName::Hl),
+                   Source::from_register(RegisterName::Sp), memory);
       },
 
       0x3B => self.dec16(Dest::from_register(RegisterName::Sp), Source::from_register(RegisterName::Sp), memory),
@@ -359,15 +393,30 @@ impl Cpu {
         let src = self.get_ld_arithmetic_bit_source(instr);
         self.cp(src_a, src, memory);
       },
+      0xC0 => {
+        if !self.registers.z_set() {
+          self.ret(memory);
+        }
+      },
       0xC1 => {
         self.registers.bc = self.pop_word(memory);
-      }
+      },
       0xC3 => { 
         let arg = self.pc_read_word(memory);
         self.jp(Source::from_immediate(arg), memory);
       },
+      0xC4 => {
+        let arg = self.pc_read_word(memory);
+        if !self.registers.z_set() {
+          self.call(arg, memory);
+        }
+      },
       0xC5 => {
         self.push_word(self.registers.bc, memory);
+      },
+      0xC6 => {
+        let arg = self.pc_read(memory);
+        self.add(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), Source::from_immediate_byte(arg), memory);
       },
       0xC8 => {
         if self.registers.z_set() {
@@ -391,7 +440,16 @@ impl Cpu {
       0xD5 => {
         self.push_word(self.registers.de, memory);
       },
-
+      0xD9 => {
+        self.ime = true;
+        self.ret(memory);
+      },
+      0xDC => {
+        let arg = self.pc_read_word(memory);
+        if self.registers.c_set() {
+          self.call(arg, memory);
+        }
+      },
       0xE0 => {
         let arg = self.pc_read(memory);
         self.ld(Dest::from_address(0xFF00 | (arg as u16)), Source::from_register(RegisterName::A), memory);

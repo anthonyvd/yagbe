@@ -156,23 +156,23 @@ impl Console {
 }
 
 fn main() -> Result<(), String>  {
-  let (tx0, rx0) = mpsc::channel();
-  let (tx1, rx1) = mpsc::channel();
+  //let (tx0, rx0) = mpsc::channel();
+  //let (tx1, rx1) = mpsc::channel();
   let (stx, srx) = mpsc::channel();
 
   thread::spawn(move || {
     let mut console = Console::new(Path::new("./tetris.gb"), stx);
-    let mut debugger_backend = debugger::DebuggerBackend::new(tx1, rx0);
+    //let mut debugger_backend = debugger::DebuggerBackend::new(tx1, rx0);
 
     'running: loop {
-      debugger_backend.update(&mut console);
+      //debugger_backend.update(&mut console);
       if !console.tick() {
         break 'running;
       }
     }
   });
   
-  let mut debugger_frontend = debugger::DebuggerFrontend::new(tx0, rx1);
+  //let mut debugger_frontend = debugger::DebuggerFrontend::new(tx0, rx1);
   'looping: loop {
     let signal = srx.try_recv();
     match signal {
@@ -187,8 +187,8 @@ fn main() -> Result<(), String>  {
     }
 
     thread::sleep(Duration::from_millis(100));
-    debugger_frontend.update();
-    debugger_frontend.render();
+    //debugger_frontend.update();
+    //debugger_frontend.render();
   }
 
   return Ok(());

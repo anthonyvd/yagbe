@@ -25,23 +25,23 @@ impl Framebuffer {
     let tile_address: u16 = 0x8000 + ((tile_id as u16) * 16);
 
     for b in (tile_address..(tile_address + 16)).step_by(2) {
-          let row: i32 = ((b as u16 - tile_address) / 2) as i32;
-          let lsb = memory[b];
-          let msb = memory[b + 1];
+      let row: i32 = ((b as u16 - tile_address) / 2) as i32;
+      let lsb = memory[b];
+      let msb = memory[b + 1];
 
-          for j in 0..8 {
-            let bit_mask = 0b10000000 >> j;
-            let pix = (((msb & bit_mask) >> (7 - j)) << 1) | ((lsb & bit_mask) >> (7 - j));
+      for j in 0..8 {
+        let bit_mask = 0b10000000 >> j;
+        let pix = (((msb & bit_mask) >> (7 - j)) << 1) | ((lsb & bit_mask) >> (7 - j));
 
-            let p: sdl2::rect::Point = sdl2::rect::Point::new(x + j as i32, y + row);
-            match pix {
-              0b00 => self.blank_pixels.push(p),
-              0b01 => self.light_pixels.push(p),
-              0b10 => self.medium_pixels.push(p),
-              0b11 => self.dark_pixels.push(p),
-              _ => unimplemented!(),
-            };
-          }
-        }
+        let p: sdl2::rect::Point = sdl2::rect::Point::new(x + j as i32, y + row);
+        match pix {
+          0b00 => self.blank_pixels.push(p),
+          0b01 => self.light_pixels.push(p),
+          0b10 => self.medium_pixels.push(p),
+          0b11 => self.dark_pixels.push(p),
+          _ => unimplemented!(),
+        };
+      }
+    }
   }
 }

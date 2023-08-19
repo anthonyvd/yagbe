@@ -1,3 +1,6 @@
 /target
-tetris.gb
+*.gb
 .vs
+perf.data
+perf.data.old
+*.svg

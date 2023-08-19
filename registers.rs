@@ -28,17 +28,6 @@ pub struct Registers {
 }
 
 impl Registers {
-  pub fn new() -> Registers{
-    return Registers {
-        af: 0,
-        bc: 0,
-        de: 0,
-        hl: 0,
-        sp: 0,
-        pc: 0,
-      };
-  }
-
   fn read_first_byte(r: u16) -> u8 {
     return r.to_be_bytes()[0];
   }

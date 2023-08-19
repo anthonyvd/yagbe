@@ -1,13 +1,14 @@
 use crate::registers::Registers;
 use crate::registers::RegisterName;
-use crate::memory_utils::Source;
-use crate::memory_utils::Dest;
+use crate::memory_utils::Location;
 use crate::utils;
 use crate::memory::Memory;
+use crate::opcodes;
 
 pub struct Cpu {
   pub registers: Registers,
   pub ime: bool,
+  pub cycles_stalled: u8,
 }
 
 impl Cpu {
@@ -21,7 +22,8 @@ impl Cpu {
         sp: 0xFFFE,
         pc: 0x0100,
       },
-      ime: true
+      ime: false,
+      cycles_stalled: 0,
     };
   }
 
@@ -35,43 +37,43 @@ impl Cpu {
   }
 
   // Reads the byte at (|pc|) then increments |pc|
-  fn pc_read(&mut self, memory: &Memory) -> u8 {
+  pub fn pc_read(&mut self, memory: &Memory) -> u8 {
     let ret = memory[self.registers.pc];
     self.registers.pc += 1;
     return ret;
   }
 
-  fn pc_read_word(&mut self, memory: &Memory) -> u16 {
+  pub fn pc_read_word(&mut self, memory: &Memory) -> u16 {
     let b1 = self.pc_read(memory);
     let b2 = self.pc_read(memory);
 
     return utils::le_to_be(utils::bytes_to_le_word(b1, b2));
   }
 
-  fn get_ld_arithmetic_bit_source(&self, instr: u8) -> Source {
+  fn get_ld_arithmetic_bit_source(&self, instr: u8) -> Location {
     return match (instr & 0x0F) % 0x08 {
-      0x00 => Source::from_register(RegisterName::B),
-      0x01 => Source::from_register(RegisterName::C),
-      0x02 => Source::from_register(RegisterName::D),
-      0x03 => Source::from_register(RegisterName::E),
-      0x04 => Source::from_register(RegisterName::H),
-      0x05 => Source::from_register(RegisterName::L),
-      0x06 => Source::from_address(self.registers.hl),
-      0x07 => Source::from_register(RegisterName::A),
+      0x00 => Location::from_immediate_register(RegisterName::B),
+      0x01 => Location::from_immediate_register(RegisterName::C),
+      0x02 => Location::from_immediate_register(RegisterName::D),
+      0x03 => Location::from_immediate_register(RegisterName::E),
+      0x04 => Location::from_immediate_register(RegisterName::H),
+      0x05 => Location::from_immediate_register(RegisterName::L),
+      0x06 => Location::from_address(self.registers.hl),
+      0x07 => Location::from_immediate_register(RegisterName::A),
       _ => unimplemented!(),
     };
   }
 
-  fn get_ld_arithmetic_bit_dest(&self, instr: u8) -> Dest {
+  fn get_ld_arithmetic_bit_dest(&self, instr: u8) -> Location {
     return match (instr & 0x0F) % 0x08 {
-      0x00 => Dest::from_register(RegisterName::B),
-      0x01 => Dest::from_register(RegisterName::C),
-      0x02 => Dest::from_register(RegisterName::D),
-      0x03 => Dest::from_register(RegisterName::E),
-      0x04 => Dest::from_register(RegisterName::H),
-      0x05 => Dest::from_register(RegisterName::L),
-      0x06 => Dest::from_address(self.registers.hl),
-      0x07 => Dest::from_register(RegisterName::A),
+      0x00 => Location::from_immediate_register(RegisterName::B),
+      0x01 => Location::from_immediate_register(RegisterName::C),
+      0x02 => Location::from_immediate_register(RegisterName::D),
+      0x03 => Location::from_immediate_register(RegisterName::E),
+      0x04 => Location::from_immediate_register(RegisterName::H),
+      0x05 => Location::from_immediate_register(RegisterName::L),
+      0x06 => Location::from_address(self.registers.hl),
+      0x07 => Location::from_immediate_register(RegisterName::A),
       _ => unimplemented!(),
     };
   }
@@ -79,12 +81,12 @@ impl Cpu {
   fn push_byte(&mut self, b: u8, memory: &mut Memory) {
     //println!("push_byte {:04X}", self.registers.sp);
     self.registers.sp = self.registers.sp.wrapping_sub(1);
-    Dest::from_address(self.registers.sp).write_byte(memory, &mut self.registers, b);
+    Location::from_address(self.registers.sp).write_byte(memory, &mut self.registers, b);
   }
 
   fn pop_byte(&mut self, memory: &mut Memory) -> u8 {
     //println!("pop_byte {:04X}", self.registers.sp);
-    let res = Source::from_address(self.registers.sp).read_byte(memory, &self.registers);
+    let res = Location::from_address(self.registers.sp).read_byte(memory, &self.registers);
     self.registers.sp = self.registers.sp.wrapping_add(1);
     return res;
   }
@@ -103,6 +105,10 @@ impl Cpu {
   }
 
   pub fn tick(&mut self, memory: &mut Memory) {
+    if self.cycles_stalled > 0 {
+      self.cycles_stalled = self.cycles_stalled - 1;
+      return;
+    }
     // This currently runs each instruction in a single simulated TCycle, which isn't accurate.
 /*
     if self.registers.pc == 0x27CD || self.registers.pc == 0x27CE || self.registers.pc == 0x27CF || self.registers.pc == 0x27D0 {
@@ -110,30 +116,395 @@ impl Cpu {
       for i in 0x8000..0x8000 + 16 {
         println!("byte {:04X}", memory[i]);
       }
-    }*/
-
-    // TODO: change this so that the PPU sets the correct bit in 0xff0f and read that here
-    // Also see pandocs about timing
-    if memory[0xFF44] == 144 && self.ime /*&& (memory[0xFFFF] & 0x01 == 1)*/ {
-      self.ime = false;
-      self.call(Source::from_address(0x40).read_word(memory, &self.registers), memory);
     }
-
-    // println!("Executing instruction at 0x{:04X}", self.registers.pc);
+*/
+/*
+    // Also see pandocs about timing
+    if (memory[0xFF0F] | 0x01 == 1) && self.ime && (memory[0xFFFF] & 0x01 == 1) {
+      memory[0xFF0F] = memory[0xFF0F] & 0xFE;
+      self.ime = false;
+      println!("INTV {:04X}", Location::from_address(0x40).read_word(memory, &self.registers));
+      self.call(Location::from_immediate(0x40), memory, true, true);
+    }
+*/
+/*
+    println!("{:04X} -> {:02X} {:02X}, {:02X} ({:02X}, {:04X}, {:02X}, {:02X} {})", 
+      self.registers.pc, memory[self.registers.pc], memory[self.registers.pc + 1], memory[self.registers.pc + 2],
+      self.registers.read_byte(RegisterName::A), self.registers.read_word(RegisterName::Hl),
+      self.registers.read_byte(RegisterName::B), self.registers.read_byte(RegisterName::C),
+      self.registers.z_set());
+*/
     let instr: u8 = self.pc_read(memory);
-
+    
     // If it's the CB prefix byte, fetch the next one
     if instr == 0xCB {
       let arg = self.pc_read(memory);
       self.exec_pref(arg, memory);
+      self.cycles_stalled = 8;
     } else {
-      self.exec_unpref(instr, memory);
+      self.cycles_stalled = opcodes::exec_unpref(instr, memory, self);
+    }
+  }
+
+  pub fn call(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond {
+      return;
+    }
+
+    let pc = self.registers.pc;
+    self.push_word(pc, memory);
+    self.registers.pc = arg.read_word(memory, &self.registers);
+  }
+
+  pub fn rst(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    // No cond check because 1/ RST has no conditional variant and 2/ CALL checks it anyway
+    // TODO: eventually this will probably need to do something different to emulate that RST is faster than CALL
+    self.call(arg, memory, cond, is_16);
+  }
+
+  pub fn push(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("push has a false cond"); }
+    if !is_16 { panic!("push is 8 bits"); }
+
+    self.push_word(arg.read_word(memory, &self.registers), memory);
+  }
+
+  pub fn pop(&mut self, mut arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("pop has a false cond"); }
+    if !is_16 { panic!("pop is 8 bits"); }
+
+    let word = self.pop_word(memory);
+    arg.write_word(memory, &mut self.registers, word);
+  }
+
+  pub fn cp(&mut self, s1: Location, s2: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("CP has a false cond"); }
+    if is_16 { panic!("CP is 16 bits"); }
+
+    let first = s1.read_byte(memory, &self.registers);
+    let second = s2.read_byte(memory, &self.registers);
+
+    if first == second { self.registers.set_z(); } else { self.registers.reset_z(); }
+    self.registers.set_n();
+    // TODO: carry flags
+  }
+
+  pub fn or(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("OR has a false cond"); }
+    if is_16 { panic!("OR is 16 bits"); }
+
+    let res = d.read_byte(memory, &self.registers) | s.read_byte(memory, &self.registers);
+
+    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    self.registers.reset_n();
+    self.registers.reset_h();
+    self.registers.reset_c();
+
+    d.write_byte(memory, &mut self.registers, res);
+  }
+
+  pub fn and(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("AND has a false cond"); }
+    if is_16 { panic!("AND is 16 bits"); }
+
+    let res = d.read_byte(memory, &mut self.registers) & s.read_byte(memory, &self.registers);
+
+    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    self.registers.reset_n();
+    self.registers.set_h();
+    self.registers.reset_c();
+
+    d.write_byte(memory, &mut self.registers, res);
+  }
+
+  pub fn add(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if is_16 {
+      let left = d.read_word(memory, &self.registers);
+      let right = s.read_word(memory, &self.registers);
+
+      let res = left.wrapping_add(right);
+
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.reset_n();
+      // TODO: H flag      
+      if 0xFFFF - left < right {
+        self.registers.set_c();
+      } else {
+        self.registers.reset_c();
+      }
+
+      d.write_word(memory, &mut self.registers, res);
+    } else {
+
+      let left = d.read_byte(memory, &self.registers);
+      let right = s.read_byte(memory, &self.registers);
+
+      let res = left.wrapping_add(right);
+        
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.reset_n();
+      // TODO: H flag
+      if 0xFF - left < right {
+        self.registers.set_c();
+      } else {
+        self.registers.reset_c();
+      }
+
+      d.write_byte(memory, &mut self.registers, res);
+    }
+  }
+
+  pub fn sub(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if is_16 {
+      unimplemented!();
+    } else {
+      let left = d.read_byte(memory, &self.registers);
+      let right = s.read_byte(memory, &self.registers);
+
+      let res = left.wrapping_sub(right);
+        
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.set_n();
+      // TODO: carry flags
+      d.write_byte(memory, &mut self.registers, res);
+    }
+  }
+
+  pub fn adc(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    let res = d.read_byte(memory, &self.registers)
+      .wrapping_add(s.read_byte(memory, &self.registers))
+      .wrapping_add(if self.registers.c_set() { 1 } else { 0 });
+
+    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    // TODO: carry flags
+    d.write_byte(memory, &mut self.registers, res);
+  }
+
+  pub fn sbc(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    let res = d.read_byte(memory, &self.registers)
+      .wrapping_sub(s.read_byte(memory, &self.registers))
+      .wrapping_sub(if self.registers.c_set() { 1 } else { 0 });
+      
+    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    self.registers.set_n();
+    // TODO: carry flags
+    d.write_byte(memory, &mut self.registers, res);
+  }
+
+  pub fn dec(&mut self, mut d: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("DEC has a false cond"); }
+
+    if is_16 {
+      let res = d.read_word(memory, &self.registers).wrapping_sub(1);
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.set_n();
+      // TODO: there should be a possible H flag set here
+
+      d.write_word(memory, &mut self.registers, res);
+    } else {
+      let res = d.read_byte(memory, &self.registers).wrapping_sub(1);
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.set_n();
+      // TODO: there should be a possible H flag set here
+
+      d.write_byte(memory, &mut self.registers, res);
+    }
+  }
+
+  pub fn inc(&mut self, mut d: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("INC has a false cond"); }
+
+    if is_16 {
+      let res = d.read_word(memory, &self.registers).wrapping_add(1);
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.reset_n();
+      // TODO: there should be a possible H flag set here
+
+      d.write_word(memory, &mut self.registers, res);
+    } else {
+      let res = d.read_byte(memory, &self.registers).wrapping_add(1);
+      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      self.registers.reset_n();
+      // TODO: there should be a possible H flag set here
+
+      d.write_byte(memory, &mut self.registers, res);
+    }
+  }
+
+  pub fn ret(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond {
+      return;
+    }
+
+    self.registers.pc = self.pop_word(memory);
+  }
+
+  pub fn reti(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("RETI has a false cond"); }
+
+    self.ime = true;
+    self.ret(memory, cond, is_16)
+  }
+
+  pub fn halt(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    // TODO: interrupts?!
+  }
+
+  pub fn stop(&mut self, d: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    // d is ignored
+    unimplemented!();
+  }
+
+  pub fn ccf(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    if self.registers.c_set() {
+      self.registers.reset_c();
+    } else {
+      self.registers.set_c();
+    }
+  }
+
+  pub fn scf(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    self.registers.set_c();
+  }
+
+  pub fn cpl(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    let byte = self.registers.read_byte(RegisterName::A);
+    self.registers.write_byte(RegisterName::A, byte ^ 0xFF);
+    self.registers.set_n();
+    self.registers.set_h();
+  }
+
+  pub fn daa(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    unimplemented!();
+  }
+
+  pub fn rra(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    
+    let mask = if self.registers.c_set() { 0x00 } else { 0x80 };
+
+    let byte = self.registers.read_byte(RegisterName::A);
+    if byte & 0x01 != 0 {
+      self.registers.set_c();
+    } else {
+      self.registers.reset_c();
+    }
+
+    let res = (byte >> 1) | mask;
+
+    self.registers.write_byte(RegisterName::A, res);
+
+    self.registers.reset_z();
+    self.registers.reset_n();
+    self.registers.reset_h();
+  }
+
+  pub fn rla(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    unimplemented!();
+  }
+
+  pub fn rrca(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    unimplemented!();
+  }
+
+  pub fn rlca(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    unimplemented!();
+  }
+
+  pub fn nop(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    // Might burn cycles
+  }
+
+  pub fn ei(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    self.ime = true;
+  }
+
+  pub fn di(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    self.ime = false;
+  }
+
+  pub fn ld(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("LD is cond"); }
+
+    if is_16 {
+      self.ld16(d, s, memory)
+    } else {
+      self.ld8(d, s, memory)
+    }
+  }
+
+  pub fn ldh(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond { panic!("LDH is cond"); }
+    if is_16 { panic!("LDH is 16"); }
+
+    self.ld8(d, s, memory);
+  }
+
+  pub fn xor(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    let res = d.read_byte(memory, &self.registers) ^ s.read_byte(memory, &self.registers);
+
+    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    self.registers.reset_n();
+    self.registers.reset_h();
+    self.registers.reset_c();
+
+    d.write_byte(memory, &mut self.registers, res);
+  }
+
+  pub fn jp(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond {
+      return;
+    }
+
+    let addr = arg.read_word(memory, &self.registers);
+    // println!("Jumping to {:04X}", addr);
+
+    self.registers.pc = addr;
+  }
+
+  pub fn jr(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    if !cond {
+      return;
+    }
+
+    let byte = arg.read_byte(memory, &self.registers);
+
+    let new_pc = self.signed_offset16(byte, self.registers.pc);
+
+    self.registers.pc = new_pc;
+  }
+
+  pub fn lda(&mut self, mut d: Location, s1: Location, s2: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+    let sp_val = s1.read_word(memory, &self.registers);
+    let val = self.signed_offset16(s2.read_byte(memory, &self.registers), sp_val);
+
+    self.ld16(d, Location::from_immediate(val), memory)
+  }
+
+  fn ld8(&mut self, mut d: Location, s: Location, memory: &mut Memory) {
+    let byte = s.read_byte(memory, &self.registers);
+    d.write_byte(memory, &mut self.registers, byte);
+  }
+
+  fn ld16(&mut self, mut d: Location, s: Location, memory: &mut Memory) {
+    let word = s.read_word(memory, &self.registers);
+    d.write_word(memory, &mut self.registers, word);
+  }
+
+  fn signed_offset16(&self, byte: u8, val: u16) -> u16 {
+    let add = (byte & 0b10000000) == 0;
+    let off: u16;
+    if add { off = byte as u16; } else { off = (!byte).wrapping_add(1) as u16; };
+
+    if add {
+      return val.wrapping_add(off);
+    } else {
+      return val.wrapping_sub(off);
     }
   }
 
   fn exec_pref(&mut self, instr: u8, memory: &mut Memory) {
-    let src: Source = self.get_ld_arithmetic_bit_source(instr);
-    let mut dest: Dest = self.get_ld_arithmetic_bit_dest(instr);
+    let src: Location = self.get_ld_arithmetic_bit_source(instr);
+    let mut dest: Location = self.get_ld_arithmetic_bit_dest(instr);
     match instr {/*
       0x00..=0x07 => {
 
@@ -143,10 +514,30 @@ impl Cpu {
       },
       0x10..=0x17 => {
 
-      },
+      },*/
       0x18..=0x1F => {
+        // RR through carry
+        let mask = if self.registers.c_set() { 0x00 } else { 0x80 };
 
+        let byte = src.read_byte(memory, &self.registers);
+        if byte & 0x01 != 0 {
+          self.registers.set_c();
+        } else {
+          self.registers.reset_c();
+        }
+
+        let res = (byte >> 1) | mask;
+
+        dest.write_byte(memory, &mut self.registers, res);
+        self.registers.reset_n();
+        self.registers.reset_h();
+        if res == 0 {
+          self.registers.set_z();
+        } else {
+          self.registers.reset_z();
+        }
       },
+      /*
       0x20..=0x27 => {
 
       },
@@ -166,10 +557,25 @@ impl Cpu {
         self.registers.reset_n();
         self.registers.reset_h();
         self.registers.reset_c();
-      },/*
+      },
       0x38..=0x3F => {
+        // SRL
+        let byte = src.read_byte(memory, &self.registers);
 
-      },*/
+        let res = byte >> 1;
+        dest.write_byte(memory, &mut self.registers, res);
+
+        if res == 0 { self.registers.set_z(); }
+        self.registers.reset_n();
+        self.registers.reset_h();
+        if res == 0 {
+          self.registers.set_z();
+        } else {
+          self.registers.reset_z();
+        }
+
+        // TODO: carry flag?
+      },
       0x40..=0x7F => {
         // BIT
         let index = (instr - 0x40) / 0x08;
@@ -200,536 +606,175 @@ impl Cpu {
       },
     };
   }
+}
 
-  fn exec_unpref(&mut self, instr: u8, memory: &mut Memory) {
-    match instr {
-      0x00 => self.nop(),
-      0x01 => {
-        let arg = self.pc_read_word(memory);
-        self.ld16(Dest::from_register(RegisterName::Bc), Source::from_immediate(arg), memory);
-      },
-      0x02 => self.ld(Dest::from_address(self.registers.bc), Source::from_register(RegisterName::A), memory),
-      0x03 => self.inc16(Dest::from_register(RegisterName::Bc), Source::from_register(RegisterName::Bc), memory),
-      0x04 => self.inc(Dest::from_register(RegisterName::B), Source::from_register(RegisterName::B), memory),
-      0x05 => self.dec(Dest::from_register(RegisterName::B), Source::from_register(RegisterName::B), memory),
-      0x06 => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_register(RegisterName::B), Source::from_immediate_byte(arg), memory);
-      },
-      0x07 => {
-        self.rlc(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), memory);
-      },
-      0x08 => {
-        let arg = self.pc_read_word(memory);
-        self.ld16(Dest::from_address(arg), Source::from_register(RegisterName::Sp), memory);
-      },
-      0x0B => self.dec16(Dest::from_register(RegisterName::Bc), Source::from_register(RegisterName::Bc), memory),
-      0x0C => self.inc(Dest::from_register(RegisterName::C), Source::from_register(RegisterName::C), memory),
-      0x0D => self.dec(Dest::from_register(RegisterName::C), Source::from_register(RegisterName::C), memory),
-      0x0E => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_register(RegisterName::C), Source::from_immediate_byte(arg), memory);
-      },
-      0x11 => {
-        let arg = self.pc_read_word(memory);
-        self.ld16(Dest::from_register(RegisterName::De), Source::from_immediate(arg), memory);
-      },
-      0x12 => {
-        self.ld(Dest::from_address(self.registers.de), Source::from_register(RegisterName::A), memory);
-      },
-      0x13 => self.inc16(Dest::from_register(RegisterName::De), Source::from_register(RegisterName::De), memory),
-      0x14 => self.inc(Dest::from_register(RegisterName::D), Source::from_register(RegisterName::D), memory),
-      0x15 => self.dec(Dest::from_register(RegisterName::D), Source::from_register(RegisterName::D), memory),
-      0x16 => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_register(RegisterName::D), Source::from_immediate_byte(arg), memory);
-      },
+#[cfg(test)]
+mod tests {
+  use crate::Cpu;
+  use crate::registers::RegisterName;
+  use crate::registers::Registers;
+  use crate::memory::Memory;
+  use crate::memory_utils::Location;
+  use crate::opcodes;
 
-      0x18 => {
-        let arg = self.pc_read(memory);
-        self.jr(Source::from_immediate_byte(arg), memory);
-      },
-      0x19 => {
-        self.add16(Dest::from_register(RegisterName::Hl),
-          Source::from_register(RegisterName::Hl), Source::from_register(RegisterName::De), memory);
-      },
-      0x1A => {
-        self.ld(Dest::from_register(RegisterName::A), Source::from_address(self.registers.de), memory);
-      },
-      0x1B => self.dec16(Dest::from_register(RegisterName::De), Source::from_register(RegisterName::De), memory),
-      0x1C => self.inc(Dest::from_register(RegisterName::D), Source::from_register(RegisterName::D), memory),
-      0x1D => self.dec(Dest::from_register(RegisterName::D), Source::from_register(RegisterName::D), memory),
+  #[test]
+  fn ld8() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
 
-      0x20 => {
-        let arg = self.pc_read(memory);
-        if !self.registers.z_set() {
-          self.jr(Source::from_immediate_byte(arg), memory);
-        }
-      },
-      0x21 => {
-        let arg = self.pc_read_word(memory);
-        self.ld16(Dest::from_register(RegisterName::Hl), Source::from_immediate(arg), memory);
-      },
-      0x22 => {
-        self.ld(Dest::from_address(self.registers.hl), Source::from_register(RegisterName::A), memory);
-        self.registers.hl = self.registers.hl.wrapping_add(1);
-      },
-      0x23 => self.inc16(Dest::from_register(RegisterName::Hl), Source::from_register(RegisterName::Hl), memory),
-      0x24 => self.inc(Dest::from_register(RegisterName::H), Source::from_register(RegisterName::H), memory),
-      0x25 => self.dec(Dest::from_register(RegisterName::H), Source::from_register(RegisterName::H), memory),
-      0x26 => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_register(RegisterName::H), Source::from_immediate_byte(arg), memory);
-      },
-      0x28 => {
-        let arg = self.pc_read(memory);
-        if self.registers.z_set() {
-          self.jr(Source::from_immediate_byte(arg), memory);
-        }
-      },
-      0x2A => {
-        self.ld(Dest::from_register(RegisterName::A), Source::from_address(self.registers.hl), memory);
-        self.registers.hl = self.registers.hl.wrapping_add(1);
-      },
+    assert_eq!(cpu.registers.pc, 0x0100);
 
-      0x2B => self.dec16(Dest::from_register(RegisterName::Hl), Source::from_register(RegisterName::Hl), memory),
-      0x2C => self.inc(Dest::from_register(RegisterName::L), Source::from_register(RegisterName::L), memory),
-      0x2D => self.dec(Dest::from_register(RegisterName::L), Source::from_register(RegisterName::L), memory),
+    assert_eq!(0x01, cpu.registers.read_byte(RegisterName::A));
+    assert_eq!(0x13, cpu.registers.read_byte(RegisterName::C));
 
-      0x2F => self.cpl(),
-      0x30 => {
-        let arg = self.pc_read(memory);
-        if !self.registers.c_set() {
-          self.jr(Source::from_immediate_byte(arg), memory);
-        }
-      },
-      0x31 => {
-        let arg = self.pc_read_word(memory);
-        self.ld16(Dest::from_register(RegisterName::Sp), Source::from_immediate(arg), memory);
-      },
-      0x32 => {
-        self.ld(Dest::from_address(self.registers.hl), Source::from_register(RegisterName::A), memory);
-        self.registers.hl = self.registers.hl.wrapping_sub(1);
-      },
-      0x33 => self.inc16(Dest::from_register(RegisterName::Sp), Source::from_register(RegisterName::Sp), memory),
-      0x34 => self.inc(Dest::from_address(self.registers.hl), Source::from_address(self.registers.hl), memory),
-      0x35 => self.dec(Dest::from_address(self.registers.hl), Source::from_address(self.registers.hl), memory),
-      0x36 => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_address(self.registers.hl), Source::from_immediate_byte(arg), memory);
-      },
-      0x37 => {
-        self.registers.set_c();
-      },
-      0x38 => {
-        let arg = self.pc_read(memory);
-        if self.registers.c_set() {
-          self.jr(Source::from_immediate_byte(arg), memory);
-        }
-      },
-      0x39 => {
-        self.add16(Dest::from_register(RegisterName::Hl), 
-                   Source::from_register(RegisterName::Hl),
-                   Source::from_register(RegisterName::Sp), memory);
-      },
+    cpu.ld(Location::from_immediate_register(RegisterName::A), Location::from_immediate_register(RegisterName::C), &mut memory, true, false);
 
-      0x3B => self.dec16(Dest::from_register(RegisterName::Sp), Source::from_register(RegisterName::Sp), memory),
-      0x3C => self.inc(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), memory),
-      0x3D => self.dec(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), memory),
-      0x3E => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_register(RegisterName::A), Source::from_immediate_byte(arg), memory);
-      },
+    assert_eq!(0x13, cpu.registers.read_byte(RegisterName::A));
 
-      0x76 => self.halt(),
-      0x40..=0x75 | 0x77..=0x7F => {
-        let dest: Dest = match instr {
-          0x40..=0x47 => Dest::from_register(RegisterName::B),
-          0x48..=0x4F => Dest::from_register(RegisterName::C),
-          0x50..=0x57 => Dest::from_register(RegisterName::D),
-          0x58..=0x5F => Dest::from_register(RegisterName::E),
-          0x60..=0x67 => Dest::from_register(RegisterName::H),
-          0x68..=0x6F => Dest::from_register(RegisterName::L),
-          0x70..=0x77 => Dest::from_address(self.registers.hl),
-          0x78..=0x7F => Dest::from_register(RegisterName::A),
-          _ => unimplemented!(),
-        };
-        let src: Source = self.get_ld_arithmetic_bit_source(instr);
+    cpu.ld(Location::from_address(0x00), Location::from_immediate_register(RegisterName::C), &mut memory, true, false);
+    assert_eq!(0x13, memory[0x00]);
 
-        self.ld(dest, src, memory);
-      },
+    assert_eq!(0x00, memory[0x01]);
+    cpu.ld(Location::from_immediate_register(RegisterName::A), Location::from_address(0x01), &mut memory, true, false);
+    assert_eq!(0x00, cpu.registers.read_byte(RegisterName::A));
 
-      0x80..=0xB7 => {
-        let dest = Dest::from_register(RegisterName::A);
-        let src_a = Source::from_register(RegisterName::A);
-        let src = self.get_ld_arithmetic_bit_source(instr);
-        match instr {
-          0x80..=0x87 => {
-            self.add(dest, src_a, src, memory);
-          },
-          0x88..=0x8F => {
-            self.adc(dest, src_a, src, memory);
-          },
-          0x90..=0x97 => {
-            self.sub(dest, src_a, src, memory);
-          },
-          0x98..=0x9F => {
-            self.sbc(dest, src_a, src, memory);
-          },
-          0xA0..=0xA7 => {
-            self.and(dest, src_a, src, memory);
-          },
-          0xA8..=0xAF => {
-            self.xor(dest, src_a, src, memory);
-          },
-          0xB0..=0xB7 => {
-            self.or(dest, src_a, src, memory);
-          },
-          _ => unimplemented!(),
-        };
-      },
-      0xB8..=0xBF => {
-        let src_a = Source::from_register(RegisterName::A);
-        let src = self.get_ld_arithmetic_bit_source(instr);
-        self.cp(src_a, src, memory);
-      },
-      0xC0 => {
-        if !self.registers.z_set() {
-          self.ret(memory);
-        }
-      },
-      0xC1 => {
-        self.registers.bc = self.pop_word(memory);
-      },
-      0xC3 => { 
-        let arg = self.pc_read_word(memory);
-        self.jp(Source::from_immediate(arg), memory);
-      },
-      0xC4 => {
-        let arg = self.pc_read_word(memory);
-        if !self.registers.z_set() {
-          self.call(arg, memory);
-        }
-      },
-      0xC5 => {
-        self.push_word(self.registers.bc, memory);
-      },
-      0xC6 => {
-        let arg = self.pc_read(memory);
-        self.add(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), Source::from_immediate_byte(arg), memory);
-      },
-      0xC8 => {
-        if self.registers.z_set() {
-          self.ret(memory);
-        }
-      },
-      0xC9 => self.ret(memory),
-      0xCA => {
-        let arg = self.pc_read_word(memory);
-        if self.registers.z_set() {
-          self.jp(Source::from_immediate(arg), memory);
-        }
-      },
-      0xCD => {
-        let arg = self.pc_read_word(memory);
-        self.call(arg, memory);
-      },
-      0xD1 => {
-        self.registers.de = self.pop_word(memory);
-      },
-      0xD5 => {
-        self.push_word(self.registers.de, memory);
-      },
-      0xD9 => {
-        self.ime = true;
-        self.ret(memory);
-      },
-      0xDC => {
-        let arg = self.pc_read_word(memory);
-        if self.registers.c_set() {
-          self.call(arg, memory);
-        }
-      },
-      0xE0 => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_address(0xFF00 | (arg as u16)), Source::from_register(RegisterName::A), memory);
-      },
-      0xE1 => {
-        self.registers.hl = self.pop_word(memory);
-      },
-      0xE2 => {
-        self.ld(Dest::from_address(0xFF00 | (self.registers.bc & 0x00FF)), Source::from_register(RegisterName::A), memory);
-      },
-      0xE4 => {
-        println!("Illegal instruction 0xE4 at {:04X}-ish", self.registers.pc);
-      },
-      0xE5 => {
-        self.push_word(self.registers.hl, memory);
-      },
-      0xE6 => {
-        let arg = self.pc_read(memory);
-        self.and(Dest::from_register(RegisterName::A), Source::from_register(RegisterName::A), Source::from_immediate_byte(arg), memory);
-      },
-      0xE9 => {
-        self.jp(Source::from_register(RegisterName::Hl), memory);
-      },
-      0xEA => {
-        let arg = self.pc_read_word(memory);
-        self.ld(Dest::from_address(arg), Source::from_register(RegisterName::A), memory);
-      },
-      0xEF => self.rst(0x0028, memory),
-      0xF0 => {
-        let arg = self.pc_read(memory);
-        self.ld(Dest::from_register(RegisterName::A), Source::from_address(0xFF00 | (arg as u16)), memory);
-      },
-      0xF1 => {
-        self.registers.af = self.pop_word(memory);
-      },
-      0xF3 => self.di(),
-      0xF5 => {
-        self.push_word(self.registers.af, memory);
-      },
-      0xFA => {
-        let arg = self.pc_read_word(memory);
-        self.ld(Dest::from_register(RegisterName::A), Source::from_address(arg), memory);
-      },
-      0xFB => self.ei(),
-      0xFE => {
-        let arg = self.pc_read(memory);
-        self.cp(Source::from_register(RegisterName::A), Source::from_immediate_byte(arg), memory);
-      },
-      0xFF => self.rst(0x0038, memory),
-      _ => {
-        println!("Unknown Instruction: 0x{:02X}, SP: {:04X}, PC {:04X}", instr, self.registers.sp, self.registers.pc); 
-        unimplemented!();
-      }
-    }
+    cpu.registers.hl = 0x1234;
+    memory[0x1234] = 0xFF;
+
+    memory[0x00] = 0x46;
+    cpu.registers.pc = 0x00;
+
+    cpu.tick(&mut memory);
+
+    assert_eq!(0xFF, cpu.registers.read_byte(RegisterName::B));
+
+
+    cpu.registers.hl = 0x1234;
+    memory[0x1234] = 0xFF;
+    cpu.registers.pc = 0x00;
+    memory[0x00] = 0x2A;
+
+    cpu.tick(&mut memory);
+    assert_eq!(0xFF, cpu.registers.read_byte(RegisterName::A));
+    assert_eq!(0x1235, cpu.registers.hl);
+
+    cpu.registers.hl = 0x1234;
+    memory[0x1234] = 0xFF;
+    cpu.registers.pc = 0x00;
+    memory[0x00] = 0x3A;
+
+    cpu.tick(&mut memory);
+    assert_eq!(0xFF, cpu.registers.read_byte(RegisterName::A));
+    assert_eq!(0x1233, cpu.registers.hl);
+
+    cpu.registers.hl = 0x1234;
+    memory[0x1234] = 0xFF;
+    cpu.registers.pc = 0x00;
+    memory[0x00] = 0x32;
+    cpu.registers.af = 0x00;
+
+    cpu.tick(&mut memory);
+    assert_eq!(0x00, memory[0x1234]);
+    assert_eq!(0x1233, cpu.registers.hl);
   }
 
+  #[test]
+  fn push_pop() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
 
-  // -- 8bit arithmetic + logic
+    cpu.registers.sp = 0x10;
 
-  fn adc(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &self.registers)
-      .wrapping_add(s2.read_byte(memory, &self.registers))
-      .wrapping_add(if self.registers.c_set() { 1 } else { 0 });
+    cpu.registers.bc = 0x1234;
+    cpu.push(Location::from_immediate_register(RegisterName::Bc), &mut memory, true, true);
 
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    // TODO: carry flags
-    d.write_byte(memory, &mut self.registers, res);
+    assert_eq!(0x0E, cpu.registers.sp);
+    assert_eq!(0x34, memory[0x0E]);
+    assert_eq!(0x12, memory[0x0F]);
+
+    cpu.registers.de = 0x00;
+    cpu.pop(Location::from_immediate_register(RegisterName::De), &mut memory, true, true);
+    assert_eq!(0x1234, cpu.registers.de);
+    assert_eq!(0x10, cpu.registers.sp);
   }
 
-  fn add(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &self.registers)
-      .wrapping_add(s2.read_byte(memory, &self.registers));
-      
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    // TODO: carry flags
-    d.write_byte(memory, &mut self.registers, res);
+  #[test]
+  fn add() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
+
+    cpu.registers.af = 0x0312;
+    assert_eq!(0x03, cpu.registers.read_byte(RegisterName::A));
+    cpu.add(Location::from_immediate_register(RegisterName::A), Location::from_immediate(0x02), &mut memory, true, false);
+    assert_eq!(0x05, cpu.registers.read_byte(RegisterName::A));
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(!cpu.registers.h_set());
+    assert!(!cpu.registers.c_set());
+
+    cpu.add(Location::from_immediate_register(RegisterName::A), Location::from_immediate(0xFB), &mut memory, true, false);
+    assert_eq!(0x00, cpu.registers.read_byte(RegisterName::A));
+    assert!(cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(!cpu.registers.h_set());
+    assert!(cpu.registers.c_set());
   }
 
-  fn add16(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_word(memory, &self.registers)
-      .wrapping_add(s2.read_word(memory, &self.registers));
+  #[test]
+  fn call_ret() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
 
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.reset_n();
-    // TODO: carry flags
-    d.write_word(memory, &mut self.registers, res);
+    cpu.registers.sp = 0xFF00;
+    cpu.registers.pc = 0x1234;
+    memory[0x1234] = 0xCD;
+    memory[0x1235] = 0x78;
+    memory[0x1236] = 0x56;
+    memory[0x5678] = 0xC9;
+
+    cpu.tick(&mut memory);
+    assert_eq!(0x5678, cpu.registers.pc);
+    assert_eq!(0xFEFE, cpu.registers.sp);
+
+    cpu.tick(&mut memory);
+    assert_eq!(0x1237, cpu.registers.pc);
+    assert_eq!(0xFF00, cpu.registers.sp);
   }
 
-  fn and(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &mut self.registers) & s2.read_byte(memory, &self.registers);
+  #[test]
+  fn call_reti() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
 
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.reset_n();
-    self.registers.set_h();
-    self.registers.reset_c();
+    cpu.ime = false;
+    cpu.registers.sp = 0xFF00;
+    cpu.registers.pc = 0x1234;
+    memory[0x1234] = 0xCD;
+    memory[0x1235] = 0x78;
+    memory[0x1236] = 0x56;
+    memory[0x5678] = 0xD9;
 
-    d.write_byte(memory, &mut self.registers, res);
+    cpu.tick(&mut memory);
+    assert_eq!(0x5678, cpu.registers.pc);
+    assert_eq!(0xFEFE, cpu.registers.sp);
+
+    cpu.tick(&mut memory);
+    assert_eq!(0x1237, cpu.registers.pc);
+    assert_eq!(0xFF00, cpu.registers.sp);
+    assert!(cpu.ime);
   }
 
-  // CP doesn't store results so it doesn't have a destination
-  fn cp(&mut self, s1: Source, s2: Source, memory: &mut Memory) {
-    let first = s1.read_byte(memory, &self.registers);
-    let second = s2.read_byte(memory, &self.registers);
-    if first == second { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.set_n();
-    // TODO: carry flags
-  }
+  #[test]
+  fn jp() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
 
-  // |s1| and |d| should represent the same location
-  fn dec(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let res = s.read_byte(memory, &self.registers).wrapping_sub(1);
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.set_n();
-    // TODO: there should be a possible H flag set here
+    memory[0x1234] = 0xC3;
+    memory[0x1235] = 0xAD;
+    memory[0x1236] = 0xDE;
+    cpu.registers.pc = 0x1234;
 
-    d.write_byte(memory, &mut self.registers, res);
-  }
-
-  // |s1| and |d| should represent the same location
-  fn inc(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let res = s.read_byte(memory, &self.registers).wrapping_add(1);
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.reset_n();
-    // TODO: there should be a possible H flag set here
-
-    d.write_byte(memory, &mut self.registers, res);
-  }
-
-  fn or(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &self.registers) | s2.read_byte(memory, &self.registers);
-
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.reset_n();
-    self.registers.reset_h();
-    self.registers.reset_c();
-
-    d.write_byte(memory, &mut self.registers, res);
-  }
-
-  fn sbc(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &self.registers)
-      .wrapping_sub(s2.read_byte(memory, &self.registers))
-      .wrapping_sub(if self.registers.c_set() { 1 } else { 0 });
-      
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.set_n();
-    // TODO: carry flags
-    d.write_byte(memory, &mut self.registers, res);
-
-  }
-
-  fn sub(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &self.registers)
-      .wrapping_sub(s2.read_byte(memory, &self.registers));
-      
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.set_n();
-    // TODO: carry flags
-    d.write_byte(memory, &mut self.registers, res);
-
-  }
-
-  fn xor(&mut self, mut d: Dest, s1: Source, s2: Source, memory: &mut Memory) {
-    let res = s1.read_byte(memory, &self.registers) ^ s2.read_byte(memory, &self.registers);
-
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.reset_n();
-    self.registers.reset_h();
-    self.registers.reset_c();
-
-    d.write_byte(memory, &mut self.registers, res);
-  }
-
-  // -- 16 bit arithmetic
-
-  fn dec16(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let res = s.read_word(memory, &self.registers).wrapping_sub(1);
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.set_n();
-    // TODO: there should be a possible H flag set here
-
-    d.write_word(memory, &mut self.registers, res);
-  }
-
-  fn inc16(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let res = s.read_word(memory, &self.registers).wrapping_add(1);
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
-    self.registers.reset_n();
-    // TODO: there should be a possible H flag set here
-
-    d.write_word(memory, &mut self.registers, res);
-  }
-
-  // -- bit shifts
-  fn rlc(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let val = s.read_byte(memory, &self.registers);
-    let msb = val & 0b10000000;
-
-    self.registers.reset_z();
-    self.registers.reset_n();
-    self.registers.reset_h();
-    if msb > 0 {
-      self.registers.set_c();
-    } else {
-      self.registers.reset_c();
-    }
-
-    let res = (val << 1) | (msb >> 7);
-    d.write_byte(memory, &mut self.registers, res);
-  }
-
-  // -- loads
-
-  fn ld(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let byte = s.read_byte(memory, &self.registers);
-    d.write_byte(memory, &mut self.registers, byte);
-  }
-
-  fn ld16(&mut self, mut d: Dest, s: Source, memory: &mut Memory) {
-    let word = s.read_word(memory, &self.registers);
-    d.write_word(memory, &mut self.registers, word);
-  }
-
-  // -- jumps and subroutines
-
-  fn jp(&mut self, s: Source, memory: &mut Memory) {
-    self.registers.pc = s.read_word(memory, &self.registers);
-  }
-
-  fn jr(&mut self, s: Source, memory: &mut Memory) {
-    let byte = s.read_byte(memory, &self.registers);
-
-    let add = (byte & 0b10000000) == 0;
-    let jump; 
-    if add { jump = byte as u16; } else { jump = (!byte).wrapping_add(1) as u16; };
-
-    if add {
-      self.registers.pc = self.registers.pc.wrapping_add(jump);
-    } else {
-      self.registers.pc = self.registers.pc.wrapping_sub(jump);
-    }
-  }
-
-  fn call(&mut self, addr: u16, memory: &mut Memory) {
-    let pc = self.registers.pc;
-    self.push_word(pc, memory);
-    self.registers.pc = addr;
-  }
-
-  fn ret(&mut self, memory: &mut Memory) {
-    self.registers.pc = self.pop_word(memory);
-  }
-
-  fn rst(&mut self, addr: u16, memory: &mut Memory) {
-    // TODO: eventually this will probably need to do something different to emulate that RST is faster than CALL
-    self.call(addr, memory);
-  }
-
-  // -- stack ops
-
-  // -- misc ops
-
-  fn nop(&self) {}
-
-  fn cpl(&mut self) {
-    let a = ((self.registers.af & 0xFF00) >> 8) as u8;
-    let c = ((!a) as u16) << 8;
-
-    self.registers.af = (self.registers.af & 0x00FF) | c;
-  }
-
-  fn ei(&mut self) {
-    self.ime = true;
-  }
-
-  fn di(&mut self) {
-    self.ime = false;
-  }
-
-  fn halt(&self) { 
-    // TODO we don't have interrupts yet so....
+    cpu.tick(&mut memory);
+    assert_eq!(0xDEAD, cpu.registers.pc);
   }
 }

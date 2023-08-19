@@ -5,26 +5,23 @@ mod memory_utils;
 mod utils;
 mod ppu;
 mod memory;
-mod framebuffer;
 mod display;
-mod debugger;
+mod opcodes;
 
 use cartridge::Cartridge;
 use std::path::Path;
 use cpu::Cpu;
 use ppu::Ppu;
 use memory::Memory;
-use framebuffer::Framebuffer;
 use display::Display;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use std::collections::HashSet;
 
-//use std::time::Instant;
+use std::time::Instant;
 
 use sdl2::event::Event;
-use sdl2::EventPump;
 use sdl2::keyboard::Keycode;
 
 enum ConsoleSignal {
@@ -51,24 +48,8 @@ struct Console {
   debug_state: DebugState,
 
   tx: mpsc::Sender<ConsoleSignal>,
-}
 
-impl debugger::Debuggable for Console {
-  fn get_registers(&self) -> registers::Registers {
-    return self.cpu.registers;
-  }
-
-  fn set_breakpoint(&mut self, b: debugger::Breakpoint) {
-    self.breakpoints.insert(b.address);
-  }
-
-  fn resume(&mut self) {
-    self.debug_state = DebugState::Resuming;
-  }
-
-  fn quit(&mut self) {
-    self.debug_state = DebugState::Quitting;
-  }
+  last_frame: std::time::Instant,
 }
 
 impl Console {
@@ -87,6 +68,7 @@ impl Console {
       event_pump: event_pump,
       breakpoints: HashSet::new(),
       debug_state: DebugState::Running,
+      last_frame: std::time::Instant::now(),
     };
   }
 
@@ -107,9 +89,12 @@ impl Console {
     }
 
     self.cpu.tick(&mut self.memory);
-    let possible_frame = self.ppu.tick(&mut self.memory);
+    let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
 
-    if possible_frame.is_some() {
+    if has_frame {
+      //println!("{}", self.last_frame.elapsed().as_millis());
+      self.last_frame = std::time::Instant::now();
+
       for event in self.event_pump.poll_iter() {
           match event {
               Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
@@ -119,7 +104,7 @@ impl Console {
               _ => {}
           }
       }
-
+/*
       let mut tiles_framebuffer = Framebuffer::new(160, 160);
       
       for i in (0x8000..0x97FF).step_by(16) {
@@ -148,31 +133,28 @@ impl Console {
         }
       }
 
-      self.main_display.push_frame(possible_frame.unwrap());
+      self.main_display.push_frame(tiles_framebuffer);
       self.main_display.display_frame();
+      */
+      self.main_display.present();
     }
     return true;
   }
 }
 
 fn main() -> Result<(), String>  {
-  //let (tx0, rx0) = mpsc::channel();
-  //let (tx1, rx1) = mpsc::channel();
   let (stx, srx) = mpsc::channel();
 
   thread::spawn(move || {
-    let mut console = Console::new(Path::new("./tetris.gb"), stx);
-    //let mut debugger_backend = debugger::DebuggerBackend::new(tx1, rx0);
+    let mut console = Console::new(Path::new("./cpu_instrs.gb"), stx);
 
     'running: loop {
-      //debugger_backend.update(&mut console);
       if !console.tick() {
         break 'running;
       }
     }
   });
   
-  //let mut debugger_frontend = debugger::DebuggerFrontend::new(tx0, rx1);
   'looping: loop {
     let signal = srx.try_recv();
     match signal {
@@ -187,8 +169,6 @@ fn main() -> Result<(), String>  {
     }
 
     thread::sleep(Duration::from_millis(100));
-    //debugger_frontend.update();
-    //debugger_frontend.render();
   }
 
   return Ok(());

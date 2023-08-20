@@ -30,6 +30,9 @@ def generate():
 			if mnemonic == "LD" and len(operands) == 3:
 				mnemonic = "LDA"
 
+			if k == "0xE8":
+				mnemonic = "ADDA"
+
 			is_16bits = False
 			cond = "true, "
 			cycle_cond = ""

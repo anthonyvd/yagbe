@@ -155,7 +155,10 @@ impl Registers {
       RegisterName::D => Registers::write_first_byte(&mut self.de, v),
       RegisterName::H => Registers::write_first_byte(&mut self.hl, v),
 
-      RegisterName::F => Registers::write_second_byte(&mut self.af, v),
+      RegisterName::F => {
+        Registers::write_second_byte(&mut self.af, v);
+        self.af = self.af & 0b11110000;
+      },
       RegisterName::C => Registers::write_second_byte(&mut self.bc, v),
       RegisterName::E => Registers::write_second_byte(&mut self.de, v),
       RegisterName::L => Registers::write_second_byte(&mut self.hl, v),
@@ -175,7 +178,9 @@ impl Registers {
       RegisterName::L => {
         println!("Trying to write a word to byte register");
       },
-      RegisterName::Af => self.af = v,
+      RegisterName::Af => {
+        self.af = v & 0b1111111111110000;
+      },
       RegisterName::Bc => self.bc = v,
       RegisterName::De => self.de = v,
       RegisterName::Hl => self.hl = v,

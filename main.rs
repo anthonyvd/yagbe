@@ -23,6 +23,7 @@ use std::time::Instant;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
 
 enum ConsoleSignal {
   Quit,
@@ -42,6 +43,8 @@ struct Console {
   ppu: Ppu,
 
   main_display: display::Display,
+  tilemap_display: display::Display,
+
   event_pump: sdl2::EventPump,
 
   breakpoints: HashSet<u16>,
@@ -50,6 +53,7 @@ struct Console {
   tx: mpsc::Sender<ConsoleSignal>,
 
   last_frame: std::time::Instant,
+  current_tick: u32,
 }
 
 impl Console {
@@ -57,18 +61,24 @@ impl Console {
     let cart = Cartridge::load(cart_path);
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
+    let tilemap_display = Display::new(&video_subsystem, "Tilemap", 320, 288);
     let main_display = Display::new(&video_subsystem, "Main", 320, 288);
     let event_pump = sdl_context.event_pump().expect("start event_pump");
+    let mut mem = Memory::new(&cart.data);
+    mem[0xFF0F] = 0xE1;
+    mem[0xFFFF] = 0x00;
 
     return Console { 
-      memory: Memory::new(&cart.data), 
+      memory: mem, 
       cpu: Cpu::new(), ppu: Ppu::new(), 
       tx: tx, 
-      main_display: main_display, 
+      main_display: main_display,
+      tilemap_display: tilemap_display,
       event_pump: event_pump,
       breakpoints: HashSet::new(),
       debug_state: DebugState::Running,
       last_frame: std::time::Instant::now(),
+      current_tick: 0,
     };
   }
 
@@ -88,10 +98,17 @@ impl Console {
       DebugState::Quitting => { return false; },
     }
 
-    self.cpu.tick(&mut self.memory);
+    self.cpu.tick(&mut self.memory, true);
     let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
 
+    self.current_tick = (self.current_tick + 1) % 70224;
+/*
+    if self.current_tick == 0 {
+      println!("70224 ticks");
+    }
+*/
     if has_frame {
+      //println!("frame");
       //println!("{}", self.last_frame.elapsed().as_millis());
       self.last_frame = std::time::Instant::now();
 
@@ -104,9 +121,7 @@ impl Console {
               _ => {}
           }
       }
-/*
-      let mut tiles_framebuffer = Framebuffer::new(160, 160);
-      
+
       for i in (0x8000..0x97FF).step_by(16) {
         let tile_index = (i - 0x8000) / 16;
         let tile_row = tile_index / 20;
@@ -123,19 +138,29 @@ impl Console {
 
             let p: sdl2::rect::Point = sdl2::rect::Point::new((tile_col * 8 + j).into(), (tile_row * 8 + row).into());
             match pix {
-              0b00 => tiles_framebuffer.blank_pixels.push(p),
-              0b01 => tiles_framebuffer.light_pixels.push(p),
-              0b10 => tiles_framebuffer.medium_pixels.push(p),
-              0b11 => tiles_framebuffer.dark_pixels.push(p),
+              0b00 => {
+                self.tilemap_display.c.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));
+                self.tilemap_display.c.draw_point(p).unwrap();
+              },
+              0b01 => {
+                self.tilemap_display.c.set_draw_color(Color::RGB(0xAA, 0xAA, 0xAA));
+                self.tilemap_display.c.draw_point(p).unwrap();
+              },
+              0b10 => {
+                self.tilemap_display.c.set_draw_color(Color::RGB(0x55, 0x55, 0x55));
+                self.tilemap_display.c.draw_point(p).unwrap();
+              },
+              0b11 => {
+                self.tilemap_display.c.set_draw_color(Color::RGB(0x00, 0x00, 0x00));
+                self.tilemap_display.c.draw_point(p).unwrap();
+              },
               _ => unimplemented!(),
             };
           }
         }
       }
 
-      self.main_display.push_frame(tiles_framebuffer);
-      self.main_display.display_frame();
-      */
+      self.tilemap_display.present();
       self.main_display.present();
     }
     return true;
@@ -146,7 +171,7 @@ fn main() -> Result<(), String>  {
   let (stx, srx) = mpsc::channel();
 
   thread::spawn(move || {
-    let mut console = Console::new(Path::new("./cpu_instrs.gb"), stx);
+    let mut console = Console::new(Path::new("./11.gb"), stx);
 
     'running: loop {
       if !console.tick() {

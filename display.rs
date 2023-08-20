@@ -6,7 +6,7 @@ const GB_WIDTH: u32 = 160;
 const GB_HEIGHT: u32 = 144;
 
 pub struct Display {
-  c: sdl2::render::WindowCanvas,
+  pub c: sdl2::render::WindowCanvas,
 }
 
 impl Display {

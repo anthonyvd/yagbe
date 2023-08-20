@@ -22,6 +22,22 @@ impl Memory {
       current_bank: 1,
     };
   }
+
+  #[cfg(test)]
+  pub fn empty() -> Memory {
+    let num_banks = 2;
+    let mut banks: std::vec::Vec<std::vec::Vec<u8>> = vec![];
+
+    for i in 0..num_banks {
+      banks.push(vec![0; 0x4000]);
+    }
+
+    return Memory {
+      rom_banks: banks, 
+      m: vec![0; 0xFFFF - 0x8000 + 1],
+      current_bank: 1,
+    };
+  }
 }
 
 impl std::ops::Index<u16> for Memory {

@@ -1545,7 +1545,7 @@ pub fn exec_unpref(instr: u8, memory: &mut Memory, cpu: &mut Cpu) -> u8 {
 		},
 		0xE8 => {
 			let b0 = cpu.pc_read(memory);
-			cpu.add(
+			cpu.adda(
 				Location::from_immediate_register(RegisterName::Sp),
 				Location::from_immediate_byte(b0),
 				memory, true, true);

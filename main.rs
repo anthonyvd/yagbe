@@ -171,7 +171,7 @@ fn main() -> Result<(), String>  {
   let (stx, srx) = mpsc::channel();
 
   thread::spawn(move || {
-    let mut console = Console::new(Path::new("./11.gb"), stx);
+    let mut console = Console::new(Path::new("./02_failed.gb"), stx);
 
     'running: loop {
       if !console.tick() {

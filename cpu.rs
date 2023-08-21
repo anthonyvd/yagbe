@@ -79,13 +79,11 @@ impl Cpu {
   }
 
   fn push_byte(&mut self, b: u8, memory: &mut Memory) {
-    //println!("push_byte {:04X}", self.registers.sp);
     self.registers.sp = self.registers.sp.wrapping_sub(1);
     Location::from_address(self.registers.sp).write_byte(memory, &mut self.registers, b);
   }
 
   fn pop_byte(&mut self, memory: &mut Memory) -> u8 {
-    //println!("pop_byte {:04X}", self.registers.sp);
     let res = Location::from_address(self.registers.sp).read_byte(memory, &self.registers);
     self.registers.sp = self.registers.sp.wrapping_add(1);
     return res;
@@ -109,15 +107,6 @@ impl Cpu {
       self.cycles_stalled = self.cycles_stalled - 1;
       return;
     }
-    // This currently runs each instruction in a single simulated TCycle, which isn't accurate.
-/*
-    if self.registers.pc == 0x27CD || self.registers.pc == 0x27CE || self.registers.pc == 0x27CF || self.registers.pc == 0x27D0 {
-      self.dump_registers();
-      for i in 0x8000..0x8000 + 16 {
-        println!("byte {:04X}", memory[i]);
-      }
-    }
-*/
 
     // Also see pandocs about timing
     if (memory[0xFF0F] & 0x01 == 1) && self.ime && (memory[0xFFFF] & 0x01 == 1) {
@@ -126,13 +115,37 @@ impl Cpu {
       self.call(Location::from_immediate(0x40), memory, true, true);
     }
 
-/*
-    println!("{:04X} -> {:02X} {:02X}, {:02X} ({:02X}, {:04X}, {:02X}, {:02X} {})", 
-      self.registers.pc, memory[self.registers.pc], memory[self.registers.pc + 1], memory[self.registers.pc + 2],
-      self.registers.read_byte(RegisterName::A), self.registers.read_word(RegisterName::Hl),
-      self.registers.read_byte(RegisterName::B), self.registers.read_byte(RegisterName::C),
-      self.registers.z_set());
-*/
+    if self.ime {
+      if (memory[0xFF0F] & 0x01 != 0) &&
+         (memory[0xFFFF] & 0x01 != 0) {
+        // VBLANK
+        self.ime = false;
+        self.call(Location::from_immediate(0x40), memory, true, true);
+      } else if (memory[0xFF0F] & 0b10 != 0) &&
+                (memory[0xFFFF] & 0b10 != 0) {
+        // STAT
+        self.ime = false;
+        self.call(Location::from_immediate(0x48), memory, true, true);
+      } else if (memory[0xFF0F] & 0b100 != 0) &&
+                (memory[0xFFFF] & 0b100 != 0) {
+        // TIMER
+        // TODO: implement TIMA
+        println!("timer");
+        self.ime = false;
+        self.call(Location::from_immediate(0x50), memory, true, true);
+      } else if (memory[0xFF0F] & 0b1000 != 0) &&
+                (memory[0xFFFF] & 0b1000 != 0) {
+        // SERIAL
+        self.ime = false;
+        self.call(Location::from_immediate(0x58), memory, true, true);
+      } else if (memory[0xFF0F] & 0b10000 != 0) &&
+                (memory[0xFFFF] & 0b10000 != 0) {
+        // JOYPAD
+        self.ime = false;
+        self.call(Location::from_immediate(0x60), memory, true, true);
+      }
+    }
+
     let instr: u8 = self.pc_read(memory);
 
     // If it's the CB prefix byte, fetch the next one
@@ -192,7 +205,12 @@ impl Cpu {
 
     if first == second { self.registers.set_z(); } else { self.registers.reset_z(); }
     self.registers.set_n();
-    // TODO: carry flags
+    if second > first { self.registers.set_c(); } else { self.registers.reset_c(); }
+    if (second & 0x0F) > (first & 0x0F) {
+      self.registers.set_h();
+    } else {
+      self.registers.reset_h();
+    }
   }
 
   pub fn or(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
@@ -230,15 +248,15 @@ impl Cpu {
 
       let res = left.wrapping_add(right);
 
-      if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+      // Z flag not affected in 16 bit adds
       self.registers.reset_n();
-      if (left & 0x0F) + (right & 0x0F) > 0x0F {
+      if (left & 0xFFF) + (right & 0xFFF) > 0xFFF {
         self.registers.set_h();
       } else {
         self.registers.reset_h();
       }
 
-      if 0xFFFF - left < right {
+      if (left as u32) + (right as u32) > 0xFFFF {
         self.registers.set_c();
       } else {
         self.registers.reset_c();
@@ -287,7 +305,7 @@ impl Cpu {
       } else {
         self.registers.reset_h();
       }
-      // TODO: H flag
+
       d.write_byte(memory, &mut self.registers, res);
     }
   }
@@ -305,9 +323,9 @@ impl Cpu {
 
     res = res.wrapping_add(c);
 
+    self.registers.reset_n();
     if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
     if overflow { self.registers.set_c(); } else { self.registers.reset_c(); }
-
     if (left & 0x0F) + (right & 0x0F) + c > 0x0F {
         self.registers.set_h();
       } else {
@@ -352,11 +370,12 @@ impl Cpu {
       let res = d.read_word(memory, &self.registers).wrapping_sub(1);
       d.write_word(memory, &mut self.registers, res);
     } else {
-      let res = d.read_byte(memory, &self.registers).wrapping_sub(1);
+      let byte = d.read_byte(memory, &self.registers);
+      let res = byte.wrapping_sub(1);
 
       if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
       self.registers.set_n();
-      // TODO: there should be a possible H flag set here
+      if byte & 0x0F == 0x00 { self.registers.set_h(); } else { self.registers.reset_h(); }
 
       d.write_byte(memory, &mut self.registers, res);
     }
@@ -369,10 +388,12 @@ impl Cpu {
       let res = d.read_word(memory, &self.registers).wrapping_add(1);
       d.write_word(memory, &mut self.registers, res);
     } else {
-      let res = d.read_byte(memory, &self.registers).wrapping_add(1);
+      let byte = d.read_byte(memory, &self.registers);
+      let res = byte.wrapping_add(1);
+
       if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
       self.registers.reset_n();
-      // TODO: there should be a possible H flag set here
+      if byte & 0x0F == 0x0F { self.registers.set_h(); } else { self.registers.reset_h(); }
 
       d.write_byte(memory, &mut self.registers, res);
     }
@@ -409,10 +430,14 @@ impl Cpu {
     } else {
       self.registers.set_c();
     }
+    self.registers.reset_n();
+    self.registers.reset_h();
   }
 
   pub fn scf(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
     self.registers.set_c();
+    self.registers.reset_n();
+    self.registers.reset_h();
   }
 
   pub fn cpl(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
@@ -478,19 +503,19 @@ impl Cpu {
   }
 
   pub fn rra(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
-    self.rr(Location::from_immediate_register(RegisterName::A), memory, true, false);
+    self.rr(Location::from_immediate_register(RegisterName::A), memory, true, false, true);
   }
 
   pub fn rla(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
-    self.rl(Location::from_immediate_register(RegisterName::A), memory, true, false);
+    self.rl(Location::from_immediate_register(RegisterName::A), memory, true, false, true);
   }
 
   pub fn rrca(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
-    self.rr(Location::from_immediate_register(RegisterName::A), memory, false, false);
+    self.rr(Location::from_immediate_register(RegisterName::A), memory, false, false, true);
   }
 
   pub fn rlca(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
-    self.rl(Location::from_immediate_register(RegisterName::A), memory, false, false);
+    self.rl(Location::from_immediate_register(RegisterName::A), memory, false, false, true);
   }
 
   pub fn nop(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
@@ -498,6 +523,7 @@ impl Cpu {
   }
 
   pub fn ei(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+    println!("ei");
     self.ime = true;
   }
 
@@ -544,29 +570,72 @@ impl Cpu {
     self.registers.pc = addr;
   }
 
+  pub fn to16bits_signed_offset(&mut self, arg: u8) -> u16 {
+    let add = (arg & 0b10000000) == 0;
+    let mask: u16 = if add { 0x0000 } else { 0xFF00 };
+
+    return mask | (arg as u16);
+  }
+
   pub fn jr(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
     if !cond {
       return;
     }
 
     let byte = arg.read_byte(memory, &self.registers);
-
-    let new_pc = self.signed_offset16(byte, self.registers.pc);
-
-    self.registers.pc = new_pc;
+    self.registers.pc = self.registers.pc.wrapping_add(self.to16bits_signed_offset(byte));
   }
 
   pub fn adda(&mut self, mut sp: Location, mut arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
     let sp_val = sp.read_word(memory, &self.registers);
-    let val = self.signed_offset16(arg.read_byte(memory, &self.registers), sp_val);
-    self.registers.sp = sp_val;
+    let offset = arg.read_byte(memory, &self.registers);
+    let val = self.to16bits_signed_offset(offset);
+
+    let low = sp_val & 0x0F;
+    let full = sp_val & 0xFF;
+
+    if low + (offset as u16) > 0x0F {
+      self.registers.set_h();
+    } else { 
+      self.registers.reset_h();
+    }
+
+    if (offset as u16) + full > 0xFF {
+      self.registers.set_c();
+    } else {
+      self.registers.reset_c();
+    }
+
+    self.registers.reset_z();
+    self.registers.reset_n();
+
+    self.registers.sp = self.registers.sp.wrapping_add(val);
   }
 
   pub fn lda(&mut self, mut d: Location, s1: Location, s2: Location, memory: &mut Memory, cond: bool, is_16: bool) {
     let sp_val = s1.read_word(memory, &self.registers);
-    let val = self.signed_offset16(s2.read_byte(memory, &self.registers), sp_val);
+    let offset = s2.read_byte(memory, &self.registers);
+    let val = self.to16bits_signed_offset(offset);
 
-    self.ld16(d, Location::from_immediate(val), memory)
+    self.registers.reset_z();
+    self.registers.reset_n();
+
+    let low = sp_val & 0x0F;
+    let full = sp_val & 0xFF;
+
+    if low + (offset as u16) > 0x0F {
+      self.registers.set_h();
+    } else { 
+      self.registers.reset_h();
+    }
+
+    if (offset as u16) + full > 0xFF {
+      self.registers.set_c();
+    } else {
+      self.registers.reset_c();
+    }
+
+    self.ld16(d, Location::from_immediate(self.registers.sp.wrapping_add(val)), memory);
   }
 
   fn ld8(&mut self, mut d: Location, s: Location, memory: &mut Memory) {
@@ -579,19 +648,7 @@ impl Cpu {
     d.write_word(memory, &mut self.registers, word);
   }
 
-  fn signed_offset16(&self, byte: u8, val: u16) -> u16 {
-    let add = (byte & 0b10000000) == 0;
-    let off: u16;
-    if add { off = byte as u16; } else { off = (!byte).wrapping_add(1) as u16; };
-
-    if add {
-      return val.wrapping_add(off);
-    } else {
-      return val.wrapping_sub(off);
-    }
-  }
-
-  pub fn rr(&mut self, mut loc: Location, memory: &mut Memory, through_carry: bool, a_shift: bool) {
+  pub fn rr(&mut self, mut loc: Location, memory: &mut Memory, through_carry: bool, a_shift: bool, force_reset_z: bool) {
     let byte = loc.read_byte(memory, &self.registers);
 
     let mask = if a_shift {
@@ -607,7 +664,7 @@ impl Cpu {
 
     loc.write_byte(memory, &mut self.registers, res);
 
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    if res == 0 && !force_reset_z { self.registers.set_z(); } else { self.registers.reset_z(); }
     self.registers.reset_n();
     self.registers.reset_h();
     if byte & 0x01 != 0 {
@@ -617,7 +674,7 @@ impl Cpu {
     }
   }
 
-  pub fn rl(&mut self, mut loc: Location, memory: &mut Memory, through_carry: bool, a_shift: bool) {
+  pub fn rl(&mut self, mut loc: Location, memory: &mut Memory, through_carry: bool, a_shift: bool, force_reset_z: bool) {
     let byte = loc.read_byte(memory, &self.registers);
 
     let mask = if !a_shift && 
@@ -631,7 +688,7 @@ impl Cpu {
 
     loc.write_byte(memory, &mut self.registers, res);
 
-    if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
+    if res == 0 && !force_reset_z { self.registers.set_z(); } else { self.registers.reset_z(); }
     self.registers.reset_n();
     self.registers.reset_h();
     if byte & 0x80 != 0 {
@@ -668,27 +725,27 @@ impl Cpu {
       // TODO: validate rotate vs shift + find good test cases
       0x00..=0x07 => {
         // RLC
-        self.rl(dest, memory, false, false);
+        self.rl(dest, memory, false, false, false);
       },
       0x08..=0x0F => {
         // RRC
-        self.rr(dest, memory, false, false);
+        self.rr(dest, memory, false, false, false);
       },
       0x10..=0x17 => {
         // RL through carry
-        self.rl(dest, memory, true, false);
+        self.rl(dest, memory, true, false, false);
       },
       0x18..=0x1F => {
         // RR through carry
-        self.rr(dest, memory, true, false);
+        self.rr(dest, memory, true, false, false);
       },
       0x20..=0x27 => {
         // SLA
-        self.rl(dest, memory, false, true);
+        self.rl(dest, memory, false, true, false);
       },
       0x28..=0x2F => {
         // SRA
-        self.rr(dest, memory, false, true);
+        self.rr(dest, memory, false, true, false);
       },
       0x30..=0x37 => {
         // SWAP
@@ -1047,7 +1104,7 @@ mod tests {
 
     cpu.registers.set_c();
     cpu.registers.write_byte(RegisterName::A, 0b10111000);
-    cpu.rr(Location::from_immediate_register(RegisterName::A), &mut memory, false, true);
+    cpu.rr(Location::from_immediate_register(RegisterName::A), &mut memory, false, true, false);
 
     assert!(!cpu.registers.c_set());
     assert_eq!(0b11011100, cpu.registers.read_byte(RegisterName::A));
@@ -1070,7 +1127,7 @@ mod tests {
 
     cpu.registers.reset_c();
     cpu.registers.write_byte(RegisterName::A, 0b10110001);
-    cpu.rl(Location::from_immediate_register(RegisterName::A), &mut memory, false, true);
+    cpu.rl(Location::from_immediate_register(RegisterName::A), &mut memory, false, true, false);
 
     assert!(cpu.registers.c_set());
     assert_eq!(0b01100010, cpu.registers.read_byte(RegisterName::A));
@@ -1169,5 +1226,128 @@ mod tests {
     cpu.daa(&mut memory, true, false);
 
     assert_eq!(0b01000010, cpu.registers.read_byte(RegisterName::A));
+  }
+
+  #[test]
+  fn inc() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
+
+    cpu.registers.sp = 0xFFFF;
+    cpu.inc(Location::from_immediate_register(RegisterName::Sp), &mut memory, true, true);
+
+    assert_eq!(0x0000, cpu.registers.sp);
+
+    cpu.registers.sp = 0x1000;
+    cpu.inc(Location::from_immediate_register(RegisterName::Sp), &mut memory, true, true);
+
+    assert_eq!(0x1001, cpu.registers.sp);
+  }
+
+  #[test]
+  fn lda() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDEAD;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate(0x01),
+            &mut memory, true, true);
+    assert_eq!(0xDEAE, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(!cpu.registers.h_set());
+    assert!(!cpu.registers.c_set());
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDEAD;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate(0x03),
+            &mut memory, true, true);
+    assert_eq!(0xDEB0, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(cpu.registers.h_set());
+    assert!(!cpu.registers.c_set());
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDEFE;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate_byte(0x02),
+            &mut memory, true, true);
+    assert_eq!(0xDF00, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(cpu.registers.h_set());
+    assert!(cpu.registers.c_set());
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDEAD;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate_byte(0xFF),
+            &mut memory, true, true);
+    assert_eq!(0xDEAC, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(cpu.registers.h_set());
+    assert!(cpu.registers.c_set());
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDE11;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate_byte(0b11101111),
+            &mut memory, true, true);
+    assert_eq!(0xDE00, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(cpu.registers.h_set());
+    assert!(cpu.registers.c_set());
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDE20;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate_byte(0b11111011),
+            &mut memory, true, true);
+    assert_eq!(0xDE1B, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(cpu.registers.h_set());
+    assert!(cpu.registers.c_set());
+
+    cpu.registers.hl = 0x1234;
+    cpu.registers.sp = 0xDE00;
+    cpu.lda(Location::from_immediate_register(RegisterName::Hl),
+            Location::from_immediate_register(RegisterName::Sp),
+            Location::from_immediate_byte(0b11111111),
+            &mut memory, true, true);
+    assert_eq!(0xDDFF, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(cpu.registers.h_set());
+    assert!(!cpu.registers.c_set());
+  }
+
+  #[test]
+  fn adda() {
+    let mut cpu = Cpu::new();
+    let mut memory = Memory::empty();
+
+    cpu.registers.sp = 0xFFFF;
+    cpu.adda(Location::from_immediate_register(RegisterName::Sp), 
+             Location::from_immediate_byte(0xFF), 
+             &mut memory, true, true);
+
+    assert_eq!(0xFFFE, cpu.registers.sp);
+    assert!(cpu.registers.c_set());
+    assert!(cpu.registers.h_set());
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
   }
 }

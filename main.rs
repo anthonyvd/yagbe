@@ -101,17 +101,7 @@ impl Console {
     self.cpu.tick(&mut self.memory, true);
     let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
 
-    self.current_tick = (self.current_tick + 1) % 70224;
-/*
-    if self.current_tick == 0 {
-      println!("70224 ticks");
-    }
-*/
     if has_frame {
-      //println!("frame");
-      //println!("{}", self.last_frame.elapsed().as_millis());
-      self.last_frame = std::time::Instant::now();
-
       for event in self.event_pump.poll_iter() {
           match event {
               Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {

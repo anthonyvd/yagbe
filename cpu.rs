@@ -713,7 +713,6 @@ impl Cpu {
     let src: Location = self.get_ld_arithmetic_bit_source(instr);
     let mut dest: Location = self.get_ld_arithmetic_bit_dest(instr);
     match instr {
-      // TODO: validate rotate vs shift + find good test cases
       0x00..=0x07 => {
         // RLC
         self.rl(dest, memory, false, false, false);

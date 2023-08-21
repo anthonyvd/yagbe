@@ -93,10 +93,10 @@ impl Cpu {
     return ((h as u16) << 8) | (l as u16);
   }
 
-  pub fn tick(&mut self, memory: &mut Memory, stall: bool) {
+  pub fn tick(&mut self, memory: &mut Memory, stall: bool) -> bool {
     if stall && self.cycles_stalled > 0 {
       self.cycles_stalled = self.cycles_stalled - 1;
-      return;
+      return false;
     }
 
     // Also see pandocs about timing
@@ -121,7 +121,6 @@ impl Cpu {
                 (memory[0xFFFF] & 0b100 != 0) {
         // TIMER
         // TODO: implement TIMA
-        println!("timer");
         self.ime = false;
         self.call(Location::from_immediate(0x50), memory, true, true);
       } else if (memory[0xFF0F] & 0b1000 != 0) &&
@@ -152,6 +151,8 @@ impl Cpu {
         self.cycles_stalled = stall_len;
       }
     }
+
+    return true;
   }
 
   pub fn call(&mut self, arg: Location, memory: &mut Memory, cond: bool, _is_16: bool) {
@@ -514,7 +515,6 @@ impl Cpu {
   }
 
   pub fn ei(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
-    println!("ei");
     self.ime = true;
   }
 

@@ -3,6 +3,7 @@ use crate::cpu::Cpu;
 use crate::ppu::Ppu;
 use crate::memory::Memory;
 use crate::display::Display;
+use crate::debug::Debuggable;
 
 use std::path::Path;
 use std::sync::mpsc;
@@ -14,16 +15,15 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 
-pub enum ConsoleSignal {
-  Quit,
-  BreakpointHit(u16),
-}
-
+#[derive(PartialEq)]
 enum DebugState {
   Running,
-  Resuming,
   Stopped,
-  Quitting,
+  Stepping,
+}
+
+pub enum ConsoleSignal {
+  Quit,
 }
 
 pub struct Console {
@@ -62,31 +62,12 @@ impl Console {
       tilemap_display: tilemap_display,
       event_pump: event_pump,
       breakpoints: HashSet::new(),
-      debug_state: DebugState::Running,
+      debug_state: DebugState::Stopped,
     };
   }
 
-  pub fn tick(&mut self) -> bool {
-    match self.debug_state {
-      DebugState::Stopped => { 
-        thread::sleep(Duration::from_millis(100));
-        return true;
-      },
-      DebugState::Running => {
-        if self.breakpoints.contains(&self.cpu.registers.pc) {
-          self.debug_state = DebugState::Stopped;
-          return true;
-        }
-      },
-      DebugState::Resuming => { self.debug_state = DebugState::Running; },
-      DebugState::Quitting => { return false; },
-    }
-
-    self.cpu.tick(&mut self.memory, true);
-    let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
-
-    if has_frame {
-      for event in self.event_pump.poll_iter() {
+  pub fn check_for_input(&mut self) -> bool {
+    for event in self.event_pump.poll_iter() {
           match event {
               Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                 self.tx.send(ConsoleSignal::Quit).expect("sending quit signal");
@@ -95,6 +76,27 @@ impl Console {
               _ => {}
           }
       }
+
+      return true;
+  }
+
+  // Returning true here means "keep console alive". False will kill it.
+  pub fn tick(&mut self) -> bool {
+    if self.debug_state == DebugState::Stopped {
+      if !self.check_for_input() { return false; } // TODO: might not be correct when input is supported, but still need to poll at least for the "quit" event.
+      thread::sleep(Duration::from_millis(100));
+      return true;
+    }
+
+    let instr_run = self.cpu.tick(&mut self.memory, true);
+    let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
+
+    if self.debug_state == DebugState::Stepping && instr_run {
+      self.debug_state = DebugState::Stopped;
+    }
+
+    if has_frame {
+      if !self.check_for_input() { return false; } // TODO: does joypad poll more often? Probably.
 
       for i in (0x8000..0x97FF).step_by(16) {
         let tile_index = (i - 0x8000) / 16;
@@ -137,6 +139,22 @@ impl Console {
       self.tilemap_display.present();
       self.main_display.present();
     }
+
     return true;
+  }
+}
+
+impl Debuggable for Console {
+  fn step(&mut self) {
+    match self.debug_state {
+      DebugState::Stopped => {
+        self.debug_state = DebugState::Stepping;
+      },
+      _ => {},
+    }
+  }
+
+  fn request_pc(&mut self) -> u16 {
+    return self.cpu.registers.pc;
   }
 }

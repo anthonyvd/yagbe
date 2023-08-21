@@ -13,18 +13,18 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use std::collections::HashSet;
+
 use std::env;
 use std::io;
 
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
+
+
+
 
 fn main() -> Result<(), String>  {
   let args: Vec<String> = env::args().collect();
 
-  if args.len() > 0 && args[1] == "--debug" {
+  if args.len() > 1 && args[1] == "--debug" {
     println!("Debugging. Send start (s) to start execution...");
 
     let mut buffer = String::new();

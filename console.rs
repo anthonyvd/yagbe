@@ -40,9 +40,6 @@ pub struct Console {
   debug_state: DebugState,
 
   tx: mpsc::Sender<ConsoleSignal>,
-
-  last_frame: std::time::Instant,
-  current_tick: u32,
 }
 
 impl Console {
@@ -66,8 +63,6 @@ impl Console {
       event_pump: event_pump,
       breakpoints: HashSet::new(),
       debug_state: DebugState::Running,
-      last_frame: std::time::Instant::now(),
-      current_tick: 0,
     };
   }
 

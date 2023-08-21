@@ -27,15 +27,6 @@ impl Cpu {
     };
   }
 
-  fn dump_registers(&self) {
-    println!("AF: {:04X}", self.registers.af);
-    println!("BC: {:04X}", self.registers.bc);
-    println!("DE: {:04X}", self.registers.de);
-    println!("HL: {:04X}", self.registers.hl);
-    println!("SP: {:04X}", self.registers.sp);
-    println!("PC: {:04X}", self.registers.pc);
-  }
-
   // Reads the byte at (|pc|) then increments |pc|
   pub fn pc_read(&mut self, memory: &Memory) -> u8 {
     let ret = memory[self.registers.pc];

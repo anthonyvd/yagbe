@@ -19,7 +19,7 @@ use std::thread;
 use std::time::Duration;
 use std::collections::HashSet;
 
-use std::time::Instant;
+
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -185,7 +185,7 @@ fn main() -> Result<(), String>  {
     match signal {
       Ok(signal) => match signal {
         ConsoleSignal::Quit => { break 'looping }
-        ConsoleSignal::BreakpointHit(addr) => {  }
+        ConsoleSignal::BreakpointHit(_addr) => {  }
       },
       Err(error) => match error {
         mpsc::TryRecvError::Empty => {},

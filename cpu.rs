@@ -101,7 +101,7 @@ impl Cpu {
 
     // Also see pandocs about timing
     if (memory[0xFF0F] & 0x01 == 1) && self.ime && (memory[0xFFFF] & 0x01 == 1) {
-      memory[0xFF0F] = (memory[0xFF0F] & 0xFE);
+      memory[0xFF0F] = memory[0xFF0F] & 0xFE;
       self.ime = false;
       self.call(Location::from_immediate(0x40), memory, true, true);
     }
@@ -154,7 +154,7 @@ impl Cpu {
     }
   }
 
-  pub fn call(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn call(&mut self, arg: Location, memory: &mut Memory, cond: bool, _is_16: bool) {
     if !cond {
       return;
     }
@@ -232,7 +232,7 @@ impl Cpu {
     d.write_byte(memory, &mut self.registers, res);
   }
 
-  pub fn add(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn add(&mut self, mut d: Location, s: Location, memory: &mut Memory, _cond: bool, is_16: bool) {
     if is_16 {
       let left = d.read_word(memory, &self.registers);
       let right = s.read_word(memory, &self.registers);
@@ -279,7 +279,7 @@ impl Cpu {
     }
   }
 
-  pub fn sub(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn sub(&mut self, mut d: Location, s: Location, memory: &mut Memory, _cond: bool, is_16: bool) {
     if is_16 {
       unimplemented!();
     } else {
@@ -333,7 +333,7 @@ impl Cpu {
     let left = d.read_byte(memory, &self.registers);
     let right = s.read_byte(memory, &self.registers);
     let c = if self.registers.c_set() { 1 } else { 0 };
-    let underflow = false;
+    let _underflow = false;
 
     let mut res = left.wrapping_sub(right);
 
@@ -390,7 +390,7 @@ impl Cpu {
     }
   }
 
-  pub fn ret(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn ret(&mut self, memory: &mut Memory, cond: bool, _is_16: bool) {
     if !cond {
       return;
     }
@@ -405,17 +405,17 @@ impl Cpu {
     self.ret(memory, cond, is_16);
   }
 
-  pub fn halt(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn halt(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     panic!("halt");
     // TODO: interrupts?!
   }
 
-  pub fn stop(&mut self, d: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn stop(&mut self, _d: Location, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     // d is ignored
     unimplemented!();
   }
 
-  pub fn ccf(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn ccf(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     if self.registers.c_set() {
       self.registers.reset_c();
     } else {
@@ -425,20 +425,20 @@ impl Cpu {
     self.registers.reset_h();
   }
 
-  pub fn scf(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn scf(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     self.registers.set_c();
     self.registers.reset_n();
     self.registers.reset_h();
   }
 
-  pub fn cpl(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn cpl(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     let byte = self.registers.read_byte(RegisterName::A);
     self.registers.write_byte(RegisterName::A, byte ^ 0xFF);
     self.registers.set_n();
     self.registers.set_h();
   }
 
-  pub fn daa(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn daa(&mut self, _memory: &mut Memory, cond: bool, is_16: bool) {
     if !cond { panic!("daa has cond"); }
     if is_16 { panic!("daa is 16 bits"); }
 
@@ -493,36 +493,36 @@ impl Cpu {
     self.registers.reset_h();
   }
 
-  pub fn rra(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn rra(&mut self, memory: &mut Memory, _cond: bool, _is_16: bool) {
     self.rr(Location::from_immediate_register(RegisterName::A), memory, true, false, true);
   }
 
-  pub fn rla(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn rla(&mut self, memory: &mut Memory, _cond: bool, _is_16: bool) {
     self.rl(Location::from_immediate_register(RegisterName::A), memory, true, false, true);
   }
 
-  pub fn rrca(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn rrca(&mut self, memory: &mut Memory, _cond: bool, _is_16: bool) {
     self.rr(Location::from_immediate_register(RegisterName::A), memory, false, false, true);
   }
 
-  pub fn rlca(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn rlca(&mut self, memory: &mut Memory, _cond: bool, _is_16: bool) {
     self.rl(Location::from_immediate_register(RegisterName::A), memory, false, false, true);
   }
 
-  pub fn nop(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn nop(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     // Might burn cycles
   }
 
-  pub fn ei(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn ei(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     println!("ei");
     self.ime = true;
   }
 
-  pub fn di(&mut self, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn di(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
     self.ime = false;
   }
 
-  pub fn ld(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn ld(&mut self, d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
     if !cond { panic!("LD is cond"); }
 
     if is_16 {
@@ -532,14 +532,14 @@ impl Cpu {
     }
   }
 
-  pub fn ldh(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn ldh(&mut self, d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
     if !cond { panic!("LDH is cond"); }
     if is_16 { panic!("LDH is 16"); }
 
     self.ld8(d, s, memory);
   }
 
-  pub fn xor(&mut self, mut d: Location, s: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn xor(&mut self, mut d: Location, s: Location, memory: &mut Memory, _cond: bool, _is_16: bool) {
     let res = d.read_byte(memory, &self.registers) ^ s.read_byte(memory, &self.registers);
 
     if res == 0 { self.registers.set_z(); } else { self.registers.reset_z(); }
@@ -550,7 +550,7 @@ impl Cpu {
     d.write_byte(memory, &mut self.registers, res);
   }
 
-  pub fn jp(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn jp(&mut self, arg: Location, memory: &mut Memory, cond: bool, _is_16: bool) {
     if !cond {
       return;
     }
@@ -568,7 +568,7 @@ impl Cpu {
     return mask | (arg as u16);
   }
 
-  pub fn jr(&mut self, arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn jr(&mut self, arg: Location, memory: &mut Memory, cond: bool, _is_16: bool) {
     if !cond {
       return;
     }
@@ -577,7 +577,7 @@ impl Cpu {
     self.registers.pc = self.registers.pc.wrapping_add(self.to16bits_signed_offset(byte));
   }
 
-  pub fn adda(&mut self, mut sp: Location, mut arg: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn adda(&mut self, sp: Location, arg: Location, memory: &mut Memory, _cond: bool, _is_16: bool) {
     let sp_val = sp.read_word(memory, &self.registers);
     let offset = arg.read_byte(memory, &self.registers);
     let val = self.to16bits_signed_offset(offset);
@@ -603,7 +603,7 @@ impl Cpu {
     self.registers.sp = self.registers.sp.wrapping_add(val);
   }
 
-  pub fn lda(&mut self, mut d: Location, s1: Location, s2: Location, memory: &mut Memory, cond: bool, is_16: bool) {
+  pub fn lda(&mut self, d: Location, s1: Location, s2: Location, memory: &mut Memory, _cond: bool, _is_16: bool) {
     let sp_val = s1.read_word(memory, &self.registers);
     let offset = s2.read_byte(memory, &self.registers);
     let val = self.to16bits_signed_offset(offset);
@@ -780,10 +780,6 @@ impl Cpu {
         let pattern: u8 = 0b00000001 << index;
         let byte = src.read_byte(memory, &self.registers);
         dest.write_byte(memory, &mut self.registers, byte | pattern);
-      },
-      _ =>  {
-        println!("Unknown CB-prefixed Instruction: 0x{:02X}", instr); 
-        unimplemented!();
       },
     };
   }

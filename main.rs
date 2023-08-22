@@ -31,7 +31,7 @@ fn main() -> Result<(), String>  {
   let mut debugger_remote = debug::DebuggerRemote::new(rth_send, htr_recv);
 
   thread::spawn(move || {
-    let mut console = console::Console::new(Path::new("./02_failed.gb"), stx);
+    let mut console = console::Console::new(Path::new("./tetris.gb"), stx, debug);
     let mut debugger_host = debug::DebuggerHost::new(rth_recv, htr_send);
 
     'running: loop {

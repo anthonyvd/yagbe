@@ -12,6 +12,7 @@ tui = "0.16"
 termion = "1.5"
 regex = "1"
 lazy_static = "1.4.0"
+hex = "0.4"
 
 [[bin]]
 name = "foo"

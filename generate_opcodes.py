@@ -46,7 +46,8 @@ def generate():
 
 			lines.append("			cpu." + mnemonic.lower() + "(")
 			for o in operands:
-				if "increment" in o and o["increment"]:
+				# Increment can be on HL, and it's also on the SP for LDI for some reason but we don't increment that we add an immediate byte
+				if "increment" in o and o["increment"] and not o["name"] == "SP":
 					increment = True
 				if "decrement" in o and o["decrement"]:
 					decrement = True

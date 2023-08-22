@@ -9,6 +9,7 @@ pub struct Cpu {
   pub registers: Registers,
   pub ime: bool,
   pub cycles_stalled: u8,
+  pub halted: bool,
 }
 
 impl Cpu {
@@ -24,6 +25,7 @@ impl Cpu {
       },
       ime: false,
       cycles_stalled: 0,
+      halted: false,
     };
   }
 
@@ -94,43 +96,45 @@ impl Cpu {
   }
 
   pub fn tick(&mut self, memory: &mut Memory, stall: bool) -> bool {
+    if self.halted && (memory[0xFF0F] & memory[0xFFFF] == 0) {
+      return false;
+    }
+
     if stall && self.cycles_stalled > 0 {
       self.cycles_stalled = self.cycles_stalled - 1;
       return false;
     }
 
-    // Also see pandocs about timing
-    if (memory[0xFF0F] & 0x01 == 1) && self.ime && (memory[0xFFFF] & 0x01 == 1) {
-      memory[0xFF0F] = memory[0xFF0F] & 0xFE;
-      self.ime = false;
-      self.call(Location::from_immediate(0x40), memory, true, true);
-    }
-
     if self.ime {
+      // TODO: The interrupt handling routing wastes some cycles
       if (memory[0xFF0F] & 0x01 != 0) &&
          (memory[0xFFFF] & 0x01 != 0) {
         // VBLANK
+        memory[0xFF0F] = memory[0xFF0F] & 0xFE;
         self.ime = false;
         self.call(Location::from_immediate(0x40), memory, true, true);
       } else if (memory[0xFF0F] & 0b10 != 0) &&
                 (memory[0xFFFF] & 0b10 != 0) {
         // STAT
+        memory[0xFF0F] = memory[0xFF0F] & !0b10;
         self.ime = false;
         self.call(Location::from_immediate(0x48), memory, true, true);
       } else if (memory[0xFF0F] & 0b100 != 0) &&
                 (memory[0xFFFF] & 0b100 != 0) {
         // TIMER
-        // TODO: implement TIMA
+        memory[0xFF0F] = memory[0xFF0F] & !0b100;
         self.ime = false;
         self.call(Location::from_immediate(0x50), memory, true, true);
       } else if (memory[0xFF0F] & 0b1000 != 0) &&
                 (memory[0xFFFF] & 0b1000 != 0) {
         // SERIAL
+        memory[0xFF0F] = memory[0xFF0F] & !0b1000;
         self.ime = false;
         self.call(Location::from_immediate(0x58), memory, true, true);
       } else if (memory[0xFF0F] & 0b10000 != 0) &&
                 (memory[0xFFFF] & 0b10000 != 0) {
         // JOYPAD
+        memory[0xFF0F] = memory[0xFF0F] & !0b10000;
         self.ime = false;
         self.call(Location::from_immediate(0x60), memory, true, true);
       }
@@ -407,8 +411,8 @@ impl Cpu {
   }
 
   pub fn halt(&mut self, _memory: &mut Memory, _cond: bool, _is_16: bool) {
-    panic!("halt");
-    // TODO: interrupts?!
+    // TODO: halt bug, see pandocs
+    self.halted = true;
   }
 
   pub fn stop(&mut self, _d: Location, _memory: &mut Memory, _cond: bool, _is_16: bool) {
@@ -443,55 +447,43 @@ impl Cpu {
     if !cond { panic!("daa has cond"); }
     if is_16 { panic!("daa is 16 bits"); }
 
-    let mut a = self.registers.read_byte(RegisterName::A);
+    let mut a = self.registers.read_byte(RegisterName::A) as u16;
     let c_set = self.registers.c_set();
     self.registers.reset_c();
 
-    if self.registers.n_set() {
-      let low = a & 0x0F;
-
-      if low > 5 || self.registers.h_set() {
-        a = a.wrapping_add(0x0A);
+    if !self.registers.n_set() {
+      if self.registers.h_set() || a & 0xF > 9 {
+        a = a.wrapping_add(0x06);
       }
 
-      let high = a & 0xF0;
-
-      if (high >> 4) < 9 && !c_set {
-        a = a.wrapping_add(0xF0);
-        self.registers.set_c();
-      } else if (high >> 4) > 6 && c_set && !self.registers.h_set() {
-        a = a.wrapping_add(0xA0);
-        self.registers.set_c();
-      } else if (high >> 4) > 5 && c_set && self.registers.h_set() {
-        a = a.wrapping_add(0x90);
-        self.registers.set_c();
+      if self.registers.c_set() || a > 0x9F {
+        a = a.wrapping_add(0x60);
       }
     } else {
-      let low = a & 0x0F;
-
-      let high = a & 0xF0;
-
-      let mut correction: u8 = 0;
-      if low > 0x9 || self.registers.h_set() {
-        correction += 0x06;
+      if self.registers.h_set() {
+        a = (a.wrapping_sub(6)) & 0xFF;
       }
 
-      if (high >> 4) > 9 || c_set || ((high >> 4) == 9 && low > 9) {
-        correction += 0x60;
-        self.registers.set_c();
+      if self.registers.c_set() {
+        a = a.wrapping_sub(0x60);
       }
-
-      a = a.wrapping_add(correction);
     }
 
-    self.registers.write_byte(RegisterName::A, a);
+    self.registers.reset_h();
+
+    if a & 0x100 == 0x100 {
+      self.registers.set_c();
+    }
+
+    a = a & 0xFF;
+
     if a == 0 {
       self.registers.set_z();
     } else {
       self.registers.reset_z();
     }
 
-    self.registers.reset_h();
+    self.registers.write_byte(RegisterName::A, a as u8);
   }
 
   pub fn rra(&mut self, memory: &mut Memory, _cond: bool, _is_16: bool) {
@@ -582,16 +574,15 @@ impl Cpu {
     let offset = arg.read_byte(memory, &self.registers);
     let val = self.to16bits_signed_offset(offset);
 
-    let low = sp_val & 0x0F;
-    let full = sp_val & 0xFF;
+    let res = self.registers.sp.wrapping_add(val);
 
-    if low + (offset as u16) > 0x0F {
+    if (sp_val & 0x0F) + (val & 0x0F) > 0xF {
       self.registers.set_h();
-    } else { 
+    } else {
       self.registers.reset_h();
     }
 
-    if (offset as u16) + full > 0xFF {
+    if (sp_val & 0xFF) + (val & 0xFF) > 0xFF {
       self.registers.set_c();
     } else {
       self.registers.reset_c();
@@ -600,7 +591,7 @@ impl Cpu {
     self.registers.reset_z();
     self.registers.reset_n();
 
-    self.registers.sp = self.registers.sp.wrapping_add(val);
+    self.registers.sp = res;
   }
 
   pub fn lda(&mut self, d: Location, s1: Location, s2: Location, memory: &mut Memory, _cond: bool, _is_16: bool) {
@@ -611,22 +602,21 @@ impl Cpu {
     self.registers.reset_z();
     self.registers.reset_n();
 
-    let low = sp_val & 0x0F;
-    let full = sp_val & 0xFF;
+    let res = self.registers.sp.wrapping_add(val);
 
-    if low + (offset as u16) > 0x0F {
+    if (sp_val & 0x0F) + (val & 0x0F) > 0xF {
       self.registers.set_h();
-    } else { 
+    } else {
       self.registers.reset_h();
     }
 
-    if (offset as u16) + full > 0xFF {
+    if (sp_val & 0xFF) + (val & 0xFF) > 0xFF {
       self.registers.set_c();
     } else {
       self.registers.reset_c();
     }
 
-    self.ld16(d, Location::from_immediate(self.registers.sp.wrapping_add(val)), memory);
+    self.ld16(d, Location::from_immediate(res), memory);
   }
 
   fn ld8(&mut self, mut d: Location, s: Location, memory: &mut Memory) {
@@ -786,7 +776,7 @@ impl Cpu {
 
 #[cfg(test)]
 mod tests {
-  use crate::Cpu;
+  use crate::cpu::Cpu;
   use crate::registers::RegisterName;
   use crate::registers::Registers;
   use crate::memory::Memory;
@@ -1304,7 +1294,7 @@ mod tests {
     assert_eq!(0xDE1B, cpu.registers.hl);
     assert!(!cpu.registers.z_set());
     assert!(!cpu.registers.n_set());
-    assert!(cpu.registers.h_set());
+    assert!(!cpu.registers.h_set());
     assert!(cpu.registers.c_set());
 
     cpu.registers.hl = 0x1234;
@@ -1316,7 +1306,33 @@ mod tests {
     assert_eq!(0xDDFF, cpu.registers.hl);
     assert!(!cpu.registers.z_set());
     assert!(!cpu.registers.n_set());
-    assert!(cpu.registers.h_set());
+    assert!(!cpu.registers.h_set());
+    assert!(!cpu.registers.c_set());
+
+    cpu.registers.hl = 0x0000;
+    cpu.registers.sp = 0x0000;
+    cpu.registers.pc = 0x1234;
+    memory[0x1234] = 0xF8;
+    memory[0x1235] = 0x01;
+    memory[0x1236] = 0x00;
+    cpu.tick(&mut memory, false);
+    assert_eq!(0x0001, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(!cpu.registers.h_set());
+    assert!(!cpu.registers.c_set());
+
+    cpu.registers.hl = 0x0000;
+    cpu.registers.sp = 0x0000;
+    cpu.registers.pc = 0x1234;
+    memory[0x1234] = 0xF8;
+    memory[0x1235] = 0xFF;
+    memory[0x1236] = 0x00;
+    cpu.tick(&mut memory, false);
+    assert_eq!(0xFFFF, cpu.registers.hl);
+    assert!(!cpu.registers.z_set());
+    assert!(!cpu.registers.n_set());
+    assert!(!cpu.registers.h_set());
     assert!(!cpu.registers.c_set());
   }
 

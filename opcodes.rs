@@ -1632,7 +1632,6 @@ pub fn exec_unpref(instr: u8, memory: &mut Memory, cpu: &mut Cpu) -> u8 {
 				Location::from_immediate_register(RegisterName::Sp),
 				Location::from_immediate_byte(b0),
 				memory, true, true);
-			cpu.registers.hl = cpu.registers.hl.wrapping_add(1);
 			return 12;
 		},
 		0xF9 => {

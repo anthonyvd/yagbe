@@ -4,6 +4,7 @@ use crate::ppu::Ppu;
 use crate::memory::Memory;
 use crate::display::Display;
 use crate::debug::Debuggable;
+use crate::registers::Registers;
 
 use std::path::Path;
 use std::sync::mpsc;
@@ -37,13 +38,17 @@ pub struct Console {
   event_pump: sdl2::EventPump,
 
   breakpoints: HashSet<u16>,
+  instr_breakpoints: HashSet<u8>,
   debug_state: DebugState,
 
   tx: mpsc::Sender<ConsoleSignal>,
+
+  current_timer_tick: u64,
+  current_div_tick: u64,
 }
 
 impl Console {
-  pub fn new(cart_path: &Path, tx: mpsc::Sender<ConsoleSignal>) -> Console {
+  pub fn new(cart_path: &Path, tx: mpsc::Sender<ConsoleSignal>, debugged: bool) -> Console {
     let cart = Cartridge::load(cart_path);
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -51,8 +56,9 @@ impl Console {
     let main_display = Display::new(&video_subsystem, "Main", 320, 288);
     let event_pump = sdl_context.event_pump().expect("start event_pump");
     let mut mem = Memory::new(&cart.data);
-    mem[0xFF0F] = 0xE1;
-    mem[0xFFFF] = 0x00;
+    mem[0xFF0F] = 0xE1; // Interrupt request
+    mem[0xFFFF] = 0x00; // Interrupt mask
+    mem[0xFF00] = 0xFF; // joypad
 
     return Console { 
       memory: mem, 
@@ -62,7 +68,10 @@ impl Console {
       tilemap_display: tilemap_display,
       event_pump: event_pump,
       breakpoints: HashSet::new(),
-      debug_state: DebugState::Stopped,
+      instr_breakpoints: HashSet::new(),
+      debug_state: if debugged { DebugState::Stopped } else { DebugState::Running },
+      current_timer_tick: 0,
+      current_div_tick: 0,
     };
   }
 
@@ -80,14 +89,53 @@ impl Console {
       return true;
   }
 
+  fn update_timer_registers(&mut self) {
+    // TODO: simultaneous TMA writes and TIMA overflows are well defined but not well implemented here, see pandocs
+    // TODO: any write to DIV resets it to 0
+    let tac = self.memory[0xFF07];
+    let timer_enabled = tac & 0b100 != 0;
+    let clock_select = tac & 0b11;
+
+    let divider = match clock_select {
+      0b00 => 1024,
+      0b01 => 16,
+      0b10 => 64,
+      0b11 => 256,
+      _ => { panic!("Nope"); },
+    };
+
+    self.current_div_tick = (self.current_div_tick + 1) % 256;
+    if self.current_div_tick == 0 {
+      // TODO: This is reset when executing a stop instruction
+      self.memory[0xFF04] = self.memory[0xFF04].wrapping_add(1);
+    }
+
+    if timer_enabled {
+      self.current_timer_tick = (self.current_timer_tick + 1) % divider;
+      if self.current_timer_tick == 0 {
+        if self.memory[0xFF05] == 0xFF {
+          self.memory[0xFF05] = self.memory[0xFF06];
+          self.memory[0xFF0F] = self.memory[0xFF0F] | 0b100;
+        } else {
+          self.memory[0xFF05] = self.memory[0xFF05].wrapping_add(1);
+        }
+      }
+    }
+  }
+
   // Returning true here means "keep console alive". False will kill it.
   pub fn tick(&mut self) -> bool {
     if self.debug_state == DebugState::Stopped {
       if !self.check_for_input() { return false; } // TODO: might not be correct when input is supported, but still need to poll at least for the "quit" event.
       thread::sleep(Duration::from_millis(100));
       return true;
+    } else if self.debug_state == DebugState::Running &&
+              self.instr_breakpoints.contains(&self.memory[self.cpu.registers.pc]) {
+      self.debug_state = DebugState::Stopped;
+      return true;
     }
 
+    self.update_timer_registers();
     let instr_run = self.cpu.tick(&mut self.memory, true);
     let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
 
@@ -154,7 +202,24 @@ impl Debuggable for Console {
     }
   }
 
-  fn request_pc(&mut self) -> u16 {
-    return self.cpu.registers.pc;
+  fn resume(&mut self) {
+    self.debug_state = DebugState::Running;
+  }
+
+  fn request_registers(&mut self) -> Option<Registers> {
+    return Some(self.cpu.registers);
+  }
+
+  fn request_next_instruction(&mut self) -> Option<[u8; 3]> {
+    let mut ret: [u8; 3] = [0; 3];
+    let pc = self.cpu.registers.pc;
+    for off in 0u16..3u16 {
+      ret[off as usize] = self.memory[pc + off];
+    }
+    return Some(ret);
+  }
+
+  fn set_breakpoint_on_instr(&mut self, instr: u8) {
+    self.instr_breakpoints.insert(instr);
   }
 }

@@ -2,18 +2,27 @@ use std::sync::mpsc;
 use std::io;
 use std::io::Write;
 
+use crate::registers::Registers;
+
 pub trait Debuggable {
 	fn step(&mut self);
-	fn request_pc(&mut self) -> u16; // TODO: change to optional
+	fn resume(&mut self);
+	fn request_registers(&mut self) -> Option<Registers>;
+	fn request_next_instruction(&mut self) -> Option<[u8; 3]>;
+	fn set_breakpoint_on_instr(&mut self, instr: u8);
 }
 
 pub enum RemoteDebugMessage {
 	Step,
-	RequestPc,
+	Resume,
+	RequestRegisters,
+	RequestNextInstr,
+	SetBreakpointOnInstr(u8),
 }
 
 pub enum RemoteDebugMessageResponse {
-	RequestPc(u16),
+	RequestRegisters(Registers),
+	RequestNextInstr([u8; 3]),
 }
 
 pub struct DebuggerRemote {
@@ -33,8 +42,16 @@ impl DebuggerRemote {
 	pub fn wait_for_response(&mut self) {
 		let msg = self.receiver.recv().unwrap();
 		match msg {
-			RemoteDebugMessageResponse::RequestPc(pc) => {
-				println!("PC: {:04X}", pc);
+			RemoteDebugMessageResponse::RequestRegisters(registers) => {
+				println!("PC: {:04X}", registers.pc);
+				println!("SP: {:04X}", registers.sp);
+				println!("AF: {:04X}", registers.af);
+				println!("BC: {:04X}", registers.bc);
+				println!("DE: {:04X}", registers.de);
+				println!("HL: {:04X}", registers.hl);
+			},
+			RemoteDebugMessageResponse::RequestNextInstr(bytes) => {
+				println!("{:02X} {:02X} {:02X}", bytes[0], bytes[1], bytes[2]);
 			},
 		}
 	}
@@ -45,8 +62,23 @@ impl DebuggerRemote {
 		let _ = std::io::stdout().flush();
     	io::stdin().read_line(&mut buffer).unwrap();
 
-    	if buffer.starts_with("pc") {
-    		self.request_pc();
+    	if buffer.starts_with("reg") {
+    		self.request_registers();
+    	} else if buffer.starts_with("c") {
+    		self.resume();
+    	} else if buffer.starts_with("l") {
+    		self.request_next_instruction();
+    	} else if buffer.starts_with("s") {
+    		self.step();
+    	} else if buffer.starts_with("bi") {
+    		if buffer.len() < 5 {
+    			println!("Invalid argument");
+    		} else {
+	    		let mut bytes = [0u8; 1];
+	    		hex::decode_to_slice(&buffer[3..5], &mut bytes as &mut [u8]).unwrap();
+
+	    		self.set_breakpoint_on_instr(bytes[0]);
+	    	}
     	}
 	}
 }
@@ -56,12 +88,26 @@ impl Debuggable for DebuggerRemote {
 		self.sender.send(RemoteDebugMessage::Step);
 	}
 
-	fn request_pc(&mut self) -> u16 {
-		self.sender.send(RemoteDebugMessage::RequestPc);
+	fn resume(&mut self) {
+		self.sender.send(RemoteDebugMessage::Resume);	
+	}
 
+	fn request_registers(&mut self) -> Option<Registers> {
+		self.sender.send(RemoteDebugMessage::RequestRegisters);
 		self.wait_for_response();
 
-		return 0;
+		return None;
+	}
+
+	fn request_next_instruction(&mut self) -> Option<[u8; 3]> {
+		self.sender.send(RemoteDebugMessage::RequestNextInstr);
+		self.wait_for_response();
+
+		return None;
+	}
+
+	fn set_breakpoint_on_instr(&mut self, instr: u8) {
+		self.sender.send(RemoteDebugMessage::SetBreakpointOnInstr(instr));
 	}
 }
 
@@ -84,9 +130,17 @@ impl DebuggerHost {
 	    match msg {
 	      Ok(msg) => match msg {
 	        RemoteDebugMessage::Step => { debuggable.step(); },
-	        RemoteDebugMessage::RequestPc => {
-	        	let pc = debuggable.request_pc();
-	        	self.sender.send(RemoteDebugMessageResponse::RequestPc(pc));
+	        RemoteDebugMessage::Resume => { debuggable.resume(); },
+	        RemoteDebugMessage::RequestRegisters => {
+	        	let regs = debuggable.request_registers().unwrap();
+	        	self.sender.send(RemoteDebugMessageResponse::RequestRegisters(regs));
+	        },
+	        RemoteDebugMessage::RequestNextInstr => {
+	        	let bytes = debuggable.request_next_instruction().unwrap();
+	        	self.sender.send(RemoteDebugMessageResponse::RequestNextInstr(bytes));
+	        },
+	        RemoteDebugMessage::SetBreakpointOnInstr(instr) => {
+	        	debuggable.set_breakpoint_on_instr(instr);
 	        },
 	        _ => { panic!("Unexpected remote debugging message type"); },
 	      },

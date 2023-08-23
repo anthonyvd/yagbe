@@ -116,27 +116,30 @@ impl Ppu {
           let y = memory[0xFF44] as u16;
           assert!(y < 144);
 
-          let scy = memory[0xFF42] as u16;
-          let scx = memory[0xFF43] as u16;
 /*
           assert_eq!(0, scx);
           assert_eq!(0, scy);
 */
           for x in 0..160 {
-            let base_map_addr = if memory[0xFF40] & 0b100000 != 0 &&
+            let is_window = memory[0xFF40] & 0b100000 != 0 &&
                 (x + 7) >= memory[0xFF4B] as u16 &&
-                y >= memory[0xFF4A] as u16 {
+                y >= memory[0xFF4A] as u16;
+
+            let base_map_addr = if is_window {
               window_tile_map_addr
             } else {
               bg_tile_map_addr
             };
 
+
+            let scy = if is_window { 0 } else { memory[0xFF42] as u16 };
+            let scx = if is_window { 0 } else { memory[0xFF43] as u16 };
+
             let mut color_idx = 0;
             
             // We only draw window/bg for now, so draw blank if they are disabled.
             if memory[0xFF40] & 1 != 0 {
-              // TODO: the window is in screen coords, so we shouldn't add
-              // scx and scy when painting the window
+              // TODO: internal line counter
               let y_tile_offset = (((y + scy) / 8) * 32);
               let x_tile_offset = ((x + scx) / 8);
 

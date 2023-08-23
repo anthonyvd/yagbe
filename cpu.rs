@@ -32,7 +32,7 @@ impl Cpu {
   // Reads the byte at (|pc|) then increments |pc|
   pub fn pc_read(&mut self, memory: &Memory) -> u8 {
     let ret = memory[self.registers.pc];
-    self.registers.pc += 1;
+    self.registers.pc = self.registers.pc.wrapping_add(1);
     return ret;
   }
 

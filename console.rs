@@ -45,6 +45,8 @@ pub struct Console {
 
   current_timer_tick: u64,
   current_div_tick: u64,
+
+  last_frame_time: std::time::Instant,
 }
 
 impl Console {
@@ -59,6 +61,7 @@ impl Console {
     mem[0xFF0F] = 0xE1; // Interrupt request
     mem[0xFFFF] = 0x00; // Interrupt mask
     mem[0xFF00] = 0xFF; // joypad
+    mem[0xFF40] = 0x91;
 
     return Console { 
       memory: mem, 
@@ -72,6 +75,7 @@ impl Console {
       debug_state: if debugged { DebugState::Stopped } else { DebugState::Running },
       current_timer_tick: 0,
       current_div_tick: 0,
+      last_frame_time: std::time::Instant::now(),
     };
   }
 

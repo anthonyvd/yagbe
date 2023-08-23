@@ -21,7 +21,10 @@ use std::io;
 fn main() -> Result<(), String>  {
   let args: Vec<String> = env::args().collect();
 
-  let debug = args.len() > 1 && args[1] == "--debug";
+  assert!(args.len() > 1);
+
+  let debug = args.len() > 2 && args[2] == "--debug";
+  let rom_path = args[1].clone();
 
   let (stx, srx) = mpsc::channel();
 
@@ -31,7 +34,7 @@ fn main() -> Result<(), String>  {
   let mut debugger_remote = debug::DebuggerRemote::new(rth_send, htr_recv);
 
   thread::spawn(move || {
-    let mut console = console::Console::new(Path::new("./tetris.gb"), stx, debug);
+    let mut console = console::Console::new(Path::new(&rom_path), stx, debug);
     let mut debugger_host = debug::DebuggerHost::new(rth_recv, htr_send);
 
     'running: loop {

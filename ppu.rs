@@ -102,6 +102,11 @@ impl Ppu {
           } else {
             0x9C00
           };
+          let window_tile_map_addr: u16 = if memory[0xFF40] & 0b1000000 == 0 {
+            0x9800
+          } else {
+            0x9C00
+          };
 /*
           if tile_data_addr != 0x8000 { panic!("tile_data_addr"); }
           if bg_tile_map_addr != 0x9800 { panic!("bg_tile_map_addr"); }
@@ -118,18 +123,33 @@ impl Ppu {
           assert_eq!(0, scy);
 */
           for x in 0..160 {
+            let base_map_addr = if memory[0xFF40] & 0b100000 != 0 &&
+                (x + 7) >= memory[0xFF4B] as u16 &&
+                y >= memory[0xFF4A] as u16 {
+              window_tile_map_addr
+            } else {
+              bg_tile_map_addr
+            };
+
             let mut color_idx = 0;
+            
             // We only draw window/bg for now, so draw blank if they are disabled.
             if memory[0xFF40] & 1 != 0 {
+              // TODO: the window is in screen coords, so we shouldn't add
+              // scx and scy when painting the window
               let y_tile_offset = (((y + scy) / 8) * 32);
               let x_tile_offset = ((x + scx) / 8);
 
               let tile_id = memory[
-                bg_tile_map_addr + y_tile_offset + x_tile_offset];
+                base_map_addr + y_tile_offset + x_tile_offset];
               let x_offset = (x + scx) % 8;
               let y_offset = (y + scy) % 8;
 
-              let tile_addr = tile_data_addr + (tile_id as u16) * 16;
+              let tile_addr = if tile_data_addr == 0x8800 {
+                tile_data_addr + (tile_id.wrapping_add(128) as u16) * 16
+              } else {
+                tile_data_addr + (tile_id as u16) * 16
+              };
 
               let lsb = memory[tile_addr + (2 * y_offset)];
               let msb = memory[tile_addr + (2 * y_offset) + 1];
@@ -138,7 +158,7 @@ impl Ppu {
               color_idx = ((lsb & mask) >> (7 - x_offset)) |
                           ((msb & mask) >> (7 - x_offset) << 1);
             }
-
+            
             let p: sdl2::rect::Point = sdl2::rect::Point::new(x as i32, y as i32);
             match color_idx {
               0b00 => {

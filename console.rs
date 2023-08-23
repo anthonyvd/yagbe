@@ -61,7 +61,7 @@ impl Console {
     mem[0xFF0F] = 0xE1; // Interrupt request
     mem[0xFFFF] = 0x00; // Interrupt mask
     mem[0xFF00] = 0xFF; // joypad
-    mem[0xFF40] = 0x91;
+    mem[0xFF40] = 0x91; // LCDC
 
     return Console { 
       memory: mem, 

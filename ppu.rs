@@ -5,12 +5,14 @@ use sdl2::pixels::Color;
 
 pub struct Ppu {
   lx: u16,
+  // TODO: use this to prevent interrupts when one was sent for the previous mode
   stat_sent_last_mode: bool,
+  window_line: u16,
 }
 
 impl Ppu {
   pub fn new() -> Ppu {
-    return Ppu { lx: 0, stat_sent_last_mode: false };
+    return Ppu { lx: 0, stat_sent_last_mode: false, window_line: 0 };
   }
 
   // each tick is one dot, so 1 TCycle
@@ -113,24 +115,16 @@ impl Ppu {
 */
           // Approximate whatever shittery the PPU and Pixel FIFOs do
           // by generating a full line right now.
-          let y = memory[0xFF44] as u16;
-          assert!(y < 144);
-
 /*
           assert_eq!(0, scx);
           assert_eq!(0, scy);
 */
-          for x in 0..160 {
-            let is_window = memory[0xFF40] & 0b100000 != 0 &&
-                (x + 7) >= memory[0xFF4B] as u16 &&
-                y >= memory[0xFF4A] as u16;
-
-            let base_map_addr = if is_window {
-              window_tile_map_addr
-            } else {
-              bg_tile_map_addr
-            };
-
+          let mut screen_y = memory[0xFF44] as u16;
+          for screen_x in 0u16..160u16 {
+            let is_window =
+              memory[0xFF40] & 0b100000 != 0 &&
+              (screen_x + 7) >= memory[0xFF4B] as u16 &&
+              screen_y >= memory[0xFF4A] as u16;
 
             let scy = if is_window { 0 } else { memory[0xFF42] as u16 };
             let scx = if is_window { 0 } else { memory[0xFF43] as u16 };
@@ -139,30 +133,45 @@ impl Ppu {
             
             // We only draw window/bg for now, so draw blank if they are disabled.
             if memory[0xFF40] & 1 != 0 {
-              // TODO: internal line counter
-              let y_tile_offset = (((y + scy) / 8) * 32);
-              let x_tile_offset = ((x + scx) / 8);
-
-              let tile_id = memory[
-                base_map_addr + y_tile_offset + x_tile_offset];
-              let x_offset = (x + scx) % 8;
-              let y_offset = (y + scy) % 8;
-
-              let tile_addr = if tile_data_addr == 0x8800 {
-                tile_data_addr + (tile_id.wrapping_add(128) as u16) * 16
+              let tile_id = if is_window {
+                memory[window_tile_map_addr + 
+                       ((screen_y - (memory[0xFF4A] as u16)) / 8) * 32 + 
+                       (7 + screen_x - memory[0xFF4B] as u16) / 8]
               } else {
-                tile_data_addr + (tile_id as u16) * 16
+                memory[bg_tile_map_addr + 
+                       ((screen_y + scy) / 8) * 32 + 
+                       (screen_x + scx) / 8]
               };
 
-              let lsb = memory[tile_addr + (2 * y_offset)];
-              let msb = memory[tile_addr + (2 * y_offset) + 1];
+              let tile_addr = if memory[0xFF40] & 0b10000 == 0 {
+                // 0x8800 addressing
+                0x8800 + tile_id.wrapping_add(128) as u16 * 16
+              } else {
+                // 0x8000 addressing
+                0x8000 + tile_id as u16 * 16
+              };
+
+              let y_offset = if is_window {
+                (screen_y - (memory[0xFF4A] as u16)) % 8
+              } else {
+                (screen_y + scy) % 8
+              };
+
+              let x_offset = if is_window {
+                (7 + screen_x - memory[0xFF4B] as u16) % 8
+              } else {
+                (screen_x + scx) % 8
+              };
+
+              let lsb = memory[(tile_addr + (2 * y_offset as u16))];
+              let msb = memory[(tile_addr + (2 * y_offset as u16) + 1)];
 
               let mask = 0b10000000 >> x_offset;
               color_idx = ((lsb & mask) >> (7 - x_offset)) |
                           ((msb & mask) >> (7 - x_offset) << 1);
             }
             
-            let p: sdl2::rect::Point = sdl2::rect::Point::new(x as i32, y as i32);
+            let p: sdl2::rect::Point = sdl2::rect::Point::new(screen_x as i32, screen_y as i32);
             match color_idx {
               0b00 => {
                 display.c.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));

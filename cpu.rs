@@ -448,7 +448,7 @@ impl Cpu {
     if is_16 { panic!("daa is 16 bits"); }
 
     let mut a = self.registers.read_byte(RegisterName::A) as u16;
-    let c_set = self.registers.c_set();
+    let _c_set = self.registers.c_set();
     self.registers.reset_c();
 
     if !self.registers.n_set() {

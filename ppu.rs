@@ -29,7 +29,7 @@ impl Ppu {
         }
       }
     } else {
-      memory[0xFF41] = (memory[0xFF41] & !0b100);
+      memory[0xFF41] = memory[0xFF41] & !0b100;
     }
 
     if self.lx == 0 {
@@ -94,7 +94,7 @@ impl Ppu {
       3 => {
         if self.lx == 80 {
           // Draw pixels. This isn't accurate.
-          let tile_data_addr: u16 = if memory[0xFF40] & 0b10000 == 0 {
+          let _tile_data_addr: u16 = if memory[0xFF40] & 0b10000 == 0 {
             0x8800
           } else { 
             0x8000
@@ -109,17 +109,10 @@ impl Ppu {
           } else {
             0x9C00
           };
-/*
-          if tile_data_addr != 0x8000 { panic!("tile_data_addr"); }
-          if bg_tile_map_addr != 0x9800 { panic!("bg_tile_map_addr"); }
-*/
+
           // Approximate whatever shittery the PPU and Pixel FIFOs do
           // by generating a full line right now.
-/*
-          assert_eq!(0, scx);
-          assert_eq!(0, scy);
-*/
-          let mut screen_y = memory[0xFF44] as u16;
+          let screen_y = memory[0xFF44] as u16;
           for screen_x in 0u16..160u16 {
             let is_window =
               memory[0xFF40] & 0b100000 != 0 &&
@@ -163,8 +156,8 @@ impl Ppu {
                 (screen_x + scx) % 8
               };
 
-              let lsb = memory[(tile_addr + (2 * y_offset as u16))];
-              let msb = memory[(tile_addr + (2 * y_offset as u16) + 1)];
+              let lsb = memory[tile_addr + (2 * y_offset as u16)];
+              let msb = memory[tile_addr + (2 * y_offset as u16) + 1];
 
               let mask = 0b10000000 >> x_offset;
               color_idx = ((lsb & mask) >> (7 - x_offset)) |

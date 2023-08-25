@@ -31,7 +31,7 @@ impl Ppu {
     let mut has_frame = false;
 
     let mode = memory[0xFF41] & 0b11;
-    let mut window_on_line = false;
+    let _window_on_line = false;
     match mode {
       0 => {
         // HBLANK, do nothing
@@ -92,7 +92,7 @@ impl Ppu {
             0x9C00
           };
 
-          let mut debug_pixel_color: Option<Color> = None;
+          let debug_pixel_color: Option<Color> = None;
 
           // Approximate whatever shittery the PPU and Pixel FIFOs do
           // by generating a full line right now.

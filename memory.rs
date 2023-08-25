@@ -105,7 +105,7 @@ impl Memory {
       0xE000..=0xFDFF => &mut self.m[(addr - 0x2000 - 0x8000) as usize],
       _ => &mut self.m[(addr - 0x8000) as usize],
     };
-    let before: u8 = *byte;
+    let _before: u8 = *byte;
     *byte = val;
   }
 }

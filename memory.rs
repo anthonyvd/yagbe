@@ -71,6 +71,11 @@ impl Memory {
         self.m[(addr - 0x8000) as usize] = val;
     }
 
+    pub fn set_joypad_low_nibble(&mut self, val: u8) {
+      self.m[(0xFF00 - 0x8000) as usize] =
+                    (self.m[(0xFF00 - 0x8000) as usize] & 0b11110000) | (val & 0b00001111);
+    }
+
     fn special_set(&mut self, addr: u16, val: u8) -> bool {
         match addr {
             0..=0x7FFF => {

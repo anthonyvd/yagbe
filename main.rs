@@ -9,6 +9,7 @@ mod opcodes;
 mod ppu;
 mod registers;
 mod utils;
+mod joypad;
 
 use std::path::Path;
 use std::sync::mpsc;

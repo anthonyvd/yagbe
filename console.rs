@@ -5,6 +5,7 @@ use crate::display::Display;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::registers::Registers;
+use crate::joypad::Joypad;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -31,6 +32,7 @@ pub struct Console {
     memory: Memory,
     cpu: Cpu,
     ppu: Ppu,
+    joypad: Joypad,
 
     main_display: Display,
     tilemap_display: Display,
@@ -65,6 +67,7 @@ impl Console {
             memory: mem,
             cpu: Cpu::new(),
             ppu: Ppu::new(),
+            joypad: Joypad::new(),
             tx: tx,
             main_display: main_display,
             tilemap_display: tilemap_display,
@@ -92,7 +95,17 @@ impl Console {
                         .send(ConsoleSignal::Quit)
                         .expect("sending quit signal");
                     return false;
-                }
+                },
+                Event::KeyDown {
+                  keycode: Some(code), ..
+                } => {
+                  self.joypad.handle_key_down(code, &mut self.memory);
+                },
+                Event::KeyUp {
+                  keycode: Some(code), ..
+                } => {
+                  self.joypad.handle_key_up(code, &mut self.memory);
+                },
                 _ => {}
             }
         }
@@ -155,6 +168,7 @@ impl Console {
 
         self.update_timer_registers();
         self.memory.tick();
+        self.joypad.tick(&mut self.memory);
         let instr_run = self.cpu.tick(&mut self.memory, true);
         let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
 

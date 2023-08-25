@@ -15,13 +15,14 @@ pub struct Ppu {
   // TODO: use this to prevent interrupts when one was sent for the previous mode
   stat_sent_last_mode: bool,
   window_line: u16,
+  drew_window_on_line: bool,
   curr_line_objects: Vec<ObjectAttribute>,
   obj_size_16: bool,
 }
 
 impl Ppu {
   pub fn new() -> Ppu {
-    return Ppu { lx: 0, stat_sent_last_mode: false, window_line: 0, 
+    return Ppu { lx: 0, stat_sent_last_mode: false, window_line: 0, drew_window_on_line: false,
       curr_line_objects: vec![], obj_size_16: true };
   }
 
@@ -30,6 +31,7 @@ impl Ppu {
     let mut has_frame = false;
 
     let mode = memory[0xFF41] & 0b11;
+    let mut window_on_line = false;
     match mode {
       0 => {
         // HBLANK, do nothing
@@ -94,28 +96,32 @@ impl Ppu {
 
           // Approximate whatever shittery the PPU and Pixel FIFOs do
           // by generating a full line right now.
-          let screen_y = memory[0xFF44] as u16;
-          for screen_x in 0u16..160u16 {
+          let screen_y = memory[0xFF44];
+          for screen_x in 0u8..160u8 {
             let is_window =
               memory[0xFF40] & 0b100000 != 0 &&
-              (screen_x + 7) >= memory[0xFF4B] as u16 &&
-              screen_y >= memory[0xFF4A] as u16;
+              (screen_x + 7) >= memory[0xFF4B] &&
+              screen_y >= memory[0xFF4A];
 
-            let scy = if is_window { 0 } else { memory[0xFF42] as u16 };
-            let scx = if is_window { 0 } else { memory[0xFF43] as u16 };
+            if is_window {
+              self.drew_window_on_line = true;
+            }
+
+            let scy = if is_window { 0 } else { memory[0xFF42] };
+            let scx = if is_window { 0 } else { memory[0xFF43] };
 
             let mut color = 0;
-            
+
             // Draw BG/Window
             if memory[0xFF40] & 1 != 0 {
               let tile_id = if is_window {
                 memory[window_tile_map_addr + 
-                       ((screen_y - (memory[0xFF4A] as u16)) / 8) * 32 + 
-                       (7 + screen_x - memory[0xFF4B] as u16) / 8]
+                       (self.window_line / 8) * 32 + 
+                       (7 + screen_x - memory[0xFF4B]) as u16 / 8]
               } else {
                 memory[bg_tile_map_addr + 
-                       ((screen_y + scy) / 8) * 32 + 
-                       (screen_x + scx) / 8]
+                       (screen_y.wrapping_add(scy) as u16 / 8) * 32 + 
+                       screen_x.wrapping_add(scx) as u16 / 8]
               };
 
               let tile_addr = if memory[0xFF40] & 0b10000 == 0 {
@@ -127,15 +133,15 @@ impl Ppu {
               };
 
               let y_offset = if is_window {
-                (screen_y - (memory[0xFF4A] as u16)) % 8
+                (self.window_line % 8) as u8
               } else {
-                (screen_y + scy) % 8
+                screen_y.wrapping_add(scy) % 8
               };
 
               let x_offset = if is_window {
-                (7 + screen_x - memory[0xFF4B] as u16) % 8
+                (7 + screen_x - memory[0xFF4B]) % 8
               } else {
-                (screen_x + scx) % 8
+                screen_x.wrapping_add(scx) % 8
               };
 
               let lsb = memory[tile_addr + (2 * y_offset as u16)];
@@ -154,8 +160,8 @@ impl Ppu {
             // TODO: obj to bg priority
             let mut best_obj_prio = 0xFF;
             for obj in self.curr_line_objects.iter() {
-              if screen_x + 8 >= obj.x as u16 && 
-                 screen_x < obj.x as u16 && 
+              if screen_x + 8 >= obj.x && 
+                 screen_x < obj.x && 
                  best_obj_prio > obj.x {
                 if obj.attributes & 0x80 != 0 && bg_window_color != 0 {
                   continue;
@@ -163,8 +169,8 @@ impl Ppu {
 
                 best_obj_prio = obj.x;
 
-                let mut y_offset = screen_y + 16 - obj.y as u16;
-                let x_offset = screen_x + 8 - obj.x as u16;
+                let mut y_offset = screen_y + 16 - obj.y;
+                let x_offset = screen_x + 8 - obj.x;
 
                 let h_flip = obj.attributes & 0b100000 != 0;
                 let v_flip = obj.attributes & 0b1000000 != 0;
@@ -257,6 +263,13 @@ impl Ppu {
     self.lx = (self.lx + 1) % 456;
     if self.lx == 0 {
       memory.set(0xFF44, (memory[0xFF44] + 1) % 154);
+      if self.drew_window_on_line {
+        self.window_line += 1;
+      }
+      if memory[0xFF44] == 0 {
+        self.window_line = 0;
+      }
+      self.drew_window_on_line = false;
     }
 
     // Set STAT LYC=LY flag if LY == LYC

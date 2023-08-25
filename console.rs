@@ -2,10 +2,10 @@ use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
 use crate::debug::Debuggable;
 use crate::display::Display;
+use crate::joypad::Joypad;
 use crate::memory::Memory;
 use crate::ppu::Ppu;
 use crate::registers::Registers;
-use crate::joypad::Joypad;
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -95,17 +95,19 @@ impl Console {
                         .send(ConsoleSignal::Quit)
                         .expect("sending quit signal");
                     return false;
-                },
+                }
                 Event::KeyDown {
-                  keycode: Some(code), ..
+                    keycode: Some(code),
+                    ..
                 } => {
-                  self.joypad.handle_key_down(code, &mut self.memory);
-                },
+                    self.joypad.handle_key_down(code, &mut self.memory);
+                }
                 Event::KeyUp {
-                  keycode: Some(code), ..
+                    keycode: Some(code),
+                    ..
                 } => {
-                  self.joypad.handle_key_up(code, &mut self.memory);
-                },
+                    self.joypad.handle_key_up(code, &mut self.memory);
+                }
                 _ => {}
             }
         }

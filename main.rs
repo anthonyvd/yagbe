@@ -3,13 +3,13 @@ mod console;
 mod cpu;
 mod debug;
 mod display;
+mod joypad;
 mod memory;
 mod memory_utils;
 mod opcodes;
 mod ppu;
 mod registers;
 mod utils;
-mod joypad;
 
 use std::path::Path;
 use std::sync::mpsc;

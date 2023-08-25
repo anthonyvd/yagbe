@@ -37,7 +37,6 @@ pub struct Console {
 
   event_pump: sdl2::EventPump,
 
-  breakpoints: HashSet<u16>,
   instr_breakpoints: HashSet<u8>,
   debug_state: DebugState,
 
@@ -45,8 +44,6 @@ pub struct Console {
 
   current_timer_tick: u64,
   current_div_tick: u64,
-
-  last_frame_time: std::time::Instant,
 }
 
 impl Console {
@@ -71,12 +68,10 @@ impl Console {
       main_display: main_display,
       tilemap_display: tilemap_display,
       event_pump: event_pump,
-      breakpoints: HashSet::new(),
       instr_breakpoints: HashSet::new(),
       debug_state: if debugged { DebugState::Stopped } else { DebugState::Running },
       current_timer_tick: 0,
       current_div_tick: 0,
-      last_frame_time: std::time::Instant::now(),
     };
   }
 

@@ -85,29 +85,29 @@ impl DebuggerRemote {
 
 impl Debuggable for DebuggerRemote {
 	fn step(&mut self) {
-		self.sender.send(RemoteDebugMessage::Step);
+		self.sender.send(RemoteDebugMessage::Step).unwrap();
 	}
 
 	fn resume(&mut self) {
-		self.sender.send(RemoteDebugMessage::Resume);	
+		self.sender.send(RemoteDebugMessage::Resume).unwrap();	
 	}
 
 	fn request_registers(&mut self) -> Option<Registers> {
-		self.sender.send(RemoteDebugMessage::RequestRegisters);
+		self.sender.send(RemoteDebugMessage::RequestRegisters).unwrap();
 		self.wait_for_response();
 
 		return None;
 	}
 
 	fn request_next_instruction(&mut self) -> Option<[u8; 3]> {
-		self.sender.send(RemoteDebugMessage::RequestNextInstr);
+		self.sender.send(RemoteDebugMessage::RequestNextInstr).unwrap();
 		self.wait_for_response();
 
 		return None;
 	}
 
 	fn set_breakpoint_on_instr(&mut self, instr: u8) {
-		self.sender.send(RemoteDebugMessage::SetBreakpointOnInstr(instr));
+		self.sender.send(RemoteDebugMessage::SetBreakpointOnInstr(instr)).unwrap();
 	}
 }
 
@@ -133,16 +133,15 @@ impl DebuggerHost {
 	        RemoteDebugMessage::Resume => { debuggable.resume(); },
 	        RemoteDebugMessage::RequestRegisters => {
 	        	let regs = debuggable.request_registers().unwrap();
-	        	self.sender.send(RemoteDebugMessageResponse::RequestRegisters(regs));
+	        	self.sender.send(RemoteDebugMessageResponse::RequestRegisters(regs)).unwrap();
 	        },
 	        RemoteDebugMessage::RequestNextInstr => {
 	        	let bytes = debuggable.request_next_instruction().unwrap();
-	        	self.sender.send(RemoteDebugMessageResponse::RequestNextInstr(bytes));
+	        	self.sender.send(RemoteDebugMessageResponse::RequestNextInstr(bytes)).unwrap();
 	        },
 	        RemoteDebugMessage::SetBreakpointOnInstr(instr) => {
 	        	debuggable.set_breakpoint_on_instr(instr);
 	        },
-	        _ => { panic!("Unexpected remote debugging message type"); },
 	      },
 	      Err(error) => match error {
 	        mpsc::TryRecvError::Empty => {},

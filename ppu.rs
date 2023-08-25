@@ -12,18 +12,19 @@ struct ObjectAttribute {
 
 pub struct Ppu {
   lx: u16,
-  // TODO: use this to prevent interrupts when one was sent for the previous mode
-  stat_sent_last_mode: bool,
   window_line: u16,
   drew_window_on_line: bool,
   curr_line_objects: Vec<ObjectAttribute>,
-  obj_size_16: bool,
 }
 
 impl Ppu {
   pub fn new() -> Ppu {
-    return Ppu { lx: 0, stat_sent_last_mode: false, window_line: 0, drew_window_on_line: false,
-      curr_line_objects: vec![], obj_size_16: true };
+    return Ppu {
+      lx: 0,
+      window_line: 0,
+      drew_window_on_line: false,
+      curr_line_objects: vec![],
+    };
   }
 
   // each tick is one dot, so 1 TCycle
@@ -47,21 +48,21 @@ impl Ppu {
           self.curr_line_objects.clear();
           if memory[0xFF40] & 0b10 != 0 {
             for i in (0xFE00..0xFE9F).step_by(4) {
-              self.obj_size_16 = (memory[0xFF40] & 0b100) != 0;
+              let obj_size_16 = (memory[0xFF40] & 0b100) != 0;
 
               if memory[i] >= 160 {
                 continue;
               }
 
               let y_min = memory[i];
-              let y_max = y_min + if self.obj_size_16 { 16 } else { 8 };
+              let y_max = y_min + if obj_size_16 { 16 } else { 8 };
 
               if memory[0xFF44] + 16 >= y_min && memory[0xFF44] + 16 < y_max {
                 // Object is on line
                 self.curr_line_objects.push(ObjectAttribute {
                   y: memory[i],
                   x: memory[i + 1],
-                  tile_idx: memory[i + 2] & if self.obj_size_16 { 0xFE } else { 0xFF },
+                  tile_idx: memory[i + 2] & if obj_size_16 { 0xFE } else { 0xFF },
                   attributes: memory[i + 3],
                 });
 
@@ -175,8 +176,9 @@ impl Ppu {
                 let h_flip = obj.attributes & 0b100000 != 0;
                 let v_flip = obj.attributes & 0b1000000 != 0;
 
+                let obj_size_16 = (memory[0xFF40] & 0b100) != 0;
                 let corrected_tile_id = obj.tile_idx as u16 +
-                  if (!v_flip && y_offset > 7) || (self.obj_size_16 && v_flip && y_offset < 8) { 
+                  if (!v_flip && y_offset > 7) || (obj_size_16 && v_flip && y_offset < 8) { 
                     1 
                   } else { 
                     0
@@ -286,6 +288,8 @@ impl Ppu {
     }
 
     if self.lx == 0 {
+      // TODO: don't send STAT for a mode change when one was sent for the previous mode.
+      // See pandocs for how the circuitry causes this behavior.
       if memory[0xFF44] == 144 {
         // VBLANK request interrupt
         memory.set(0xFF0F, memory[0xFF0F] | 0x01);

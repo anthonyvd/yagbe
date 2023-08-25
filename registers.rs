@@ -1,7 +1,6 @@
 #[derive(Copy, Clone)]
 pub enum RegisterName {
   A,
-  F,
   Af,
   B,
   C,
@@ -13,7 +12,6 @@ pub enum RegisterName {
   L,
   Hl,
   Sp,
-  Pc,
   Invalid,
 }
 
@@ -98,8 +96,7 @@ impl Registers {
       RegisterName::Bc |
       RegisterName::De |
       RegisterName::Hl |
-      RegisterName::Sp |
-      RegisterName::Pc => {
+      RegisterName::Sp => {
         println!("Trying to read single byte from word register");
         unimplemented!();
       },
@@ -108,7 +105,6 @@ impl Registers {
       RegisterName::D => return Registers::read_first_byte(self.de),
       RegisterName::H => return Registers::read_first_byte(self.hl),
 
-      RegisterName::F => return Registers::read_second_byte(self.af),
       RegisterName::C => return Registers::read_second_byte(self.bc),
       RegisterName::E => return Registers::read_second_byte(self.de),
       RegisterName::L => return Registers::read_second_byte(self.hl),
@@ -119,7 +115,6 @@ impl Registers {
   pub fn read_word(&self, r: RegisterName) -> u16 {
     match r {
       RegisterName::A |
-      RegisterName::F |
       RegisterName::B |
       RegisterName::C |
       RegisterName::D |
@@ -134,7 +129,6 @@ impl Registers {
       RegisterName::De => return self.de,
       RegisterName::Hl => return self.hl,
       RegisterName::Sp => return self.sp,
-      RegisterName::Pc => return self.pc,
       _ => { println!("Unknown register name"); unimplemented!(); }
     }
   }
@@ -145,8 +139,7 @@ impl Registers {
       RegisterName::Bc |
       RegisterName::De |
       RegisterName::Hl |
-      RegisterName::Sp |
-      RegisterName::Pc => {
+      RegisterName::Sp => {
         println!("Trying to write single byte to word register");
         panic!("wut");
       },
@@ -155,10 +148,6 @@ impl Registers {
       RegisterName::D => Registers::write_first_byte(&mut self.de, v),
       RegisterName::H => Registers::write_first_byte(&mut self.hl, v),
 
-      RegisterName::F => {
-        Registers::write_second_byte(&mut self.af, v);
-        self.af = self.af & 0b11110000;
-      },
       RegisterName::C => Registers::write_second_byte(&mut self.bc, v),
       RegisterName::E => Registers::write_second_byte(&mut self.de, v),
       RegisterName::L => Registers::write_second_byte(&mut self.hl, v),
@@ -169,7 +158,6 @@ impl Registers {
   pub fn write_word(&mut self, r: RegisterName, v: u16) {
     match r {
       RegisterName::A |
-      RegisterName::F |
       RegisterName::B |
       RegisterName::C |
       RegisterName::D |
@@ -185,7 +173,6 @@ impl Registers {
       RegisterName::De => self.de = v,
       RegisterName::Hl => self.hl = v,
       RegisterName::Sp => self.sp = v,
-      RegisterName::Pc => self.pc = v,
       _ => { println!("Unknown register name"); unimplemented!(); }
     }
   }

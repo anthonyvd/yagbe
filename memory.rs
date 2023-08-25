@@ -38,6 +38,40 @@ impl Memory {
       current_bank: 1,
     };
   }
+
+  pub fn initialize(&mut self, addr: u16, val: u8) {
+    self.m[(addr - 0x8000) as usize] = val;
+  }
+
+  fn special_set(&mut self, addr: u16, val: u8) -> bool {
+    match addr {
+      0xFF00 => {
+        self.m[(addr - 0x8000) as usize] = (self.m[(addr - 0x8000) as usize] & 0b00001111) | (val & 0b11110000);
+        return true;
+      },
+      _ => {
+        return false;
+      },
+    }
+  }
+
+  pub fn set(&mut self, addr: u16, val: u8) {
+    if self.special_set(addr, val) {
+      return;
+    }
+
+    let byte: &mut u8 = match addr {
+      // This is the first, static ROM bank
+      0..=0x3FFF => &mut self.rom_banks[0][addr as usize],
+      // This is the switchable bank
+      0x4000..=0x7FFF => &mut self.rom_banks[self.current_bank][(addr - 0x4000) as usize],
+      // 0xC000~0xDDFF is mirrored at 0xE000~0xFDFF
+      0xE000..=0xFDFF => &mut self.m[(addr - 0x2000 - 0x8000) as usize],
+      _ => &mut self.m[(addr - 0x8000) as usize],
+    };
+    let before: u8 = *byte;
+    *byte = val;
+  }
 }
 
 impl std::ops::Index<u16> for Memory {
@@ -56,9 +90,13 @@ impl std::ops::Index<u16> for Memory {
   }
 }
 
+/*
 impl std::ops::IndexMut<u16> for Memory {
   fn index_mut(&mut self, i: u16) -> &mut Self::Output {
-    match i {
+    if i == 0xFF40 {
+      println!("Writing to LCDC before {:04X}", self.m[(i - 0x8000) as usize]);
+    }
+    let ret = match i {
       // This is the first, static ROM bank
       0..=0x3FFF => &mut self.rom_banks[0][i as usize],
       // This is the switchable bank
@@ -66,6 +104,10 @@ impl std::ops::IndexMut<u16> for Memory {
       // 0xC000~0xDDFF is mirrored at 0xE000~0xFDFF
       0xE000..=0xFDFF => &mut self.m[(i - 0x2000 - 0x8000) as usize],
       _ => &mut self.m[(i - 0x8000) as usize],
+    };
+    if i == 0xFF40 {
+      println!("Writing to LCDC after {:04X}", ret);
     }
+    return ret;
   }
-}
+}*/

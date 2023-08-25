@@ -110,31 +110,32 @@ impl Cpu {
       if (memory[0xFF0F] & 0x01 != 0) &&
          (memory[0xFFFF] & 0x01 != 0) {
         // VBLANK
-        memory[0xFF0F] = memory[0xFF0F] & 0xFE;
+        memory.set(0xFF0F, memory[0xFF0F] & 0xFE);
         self.ime = false;
         self.call(Location::from_immediate(0x40), memory, true, true);
       } else if (memory[0xFF0F] & 0b10 != 0) &&
                 (memory[0xFFFF] & 0b10 != 0) {
         // STAT
-        memory[0xFF0F] = memory[0xFF0F] & !0b10;
+        // println!("STAT at LY={:02X}", memory[0xFF44]);
+        memory.set(0xFF0F, memory[0xFF0F] & !0b10);
         self.ime = false;
         self.call(Location::from_immediate(0x48), memory, true, true);
       } else if (memory[0xFF0F] & 0b100 != 0) &&
                 (memory[0xFFFF] & 0b100 != 0) {
         // TIMER
-        memory[0xFF0F] = memory[0xFF0F] & !0b100;
+        memory.set(0xFF0F, memory[0xFF0F] & !0b100);
         self.ime = false;
         self.call(Location::from_immediate(0x50), memory, true, true);
       } else if (memory[0xFF0F] & 0b1000 != 0) &&
                 (memory[0xFFFF] & 0b1000 != 0) {
         // SERIAL
-        memory[0xFF0F] = memory[0xFF0F] & !0b1000;
+        memory.set(0xFF0F, memory[0xFF0F] & !0b1000);
         self.ime = false;
         self.call(Location::from_immediate(0x58), memory, true, true);
       } else if (memory[0xFF0F] & 0b10000 != 0) &&
                 (memory[0xFFFF] & 0b10000 != 0) {
         // JOYPAD
-        memory[0xFF0F] = memory[0xFF0F] & !0b10000;
+        memory.set(0xFF0F, memory[0xFF0F] & !0b10000);
         self.ime = false;
         self.call(Location::from_immediate(0x60), memory, true, true);
       }

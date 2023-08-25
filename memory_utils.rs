@@ -87,7 +87,7 @@ impl Location {
     if self.is_register {
       registers.write_byte(self.register, v);
     } else {
-      memory[self.address] = v;
+      memory.set(self.address, v);
     }
   }
 
@@ -96,8 +96,8 @@ impl Location {
       registers.write_word(self.register, v);
     } else {
       // LE means we need to swap the bytes before writing them
-      memory[self.address] = v.to_be_bytes()[1];
-      memory[self.address + 1] = v.to_be_bytes()[0];
+      memory.set(self.address, v.to_be_bytes()[1]);
+      memory.set(self.address + 1, v.to_be_bytes()[0]);
     }
   }
 }

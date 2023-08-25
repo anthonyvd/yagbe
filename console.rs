@@ -54,14 +54,15 @@ impl Console {
     let cart = Cartridge::load(cart_path);
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
-    let tilemap_display = Display::new(&video_subsystem, "Tilemap", 320, 288);
-    let main_display = Display::new(&video_subsystem, "Main", 320, 288);
+    let tilemap_display = Display::new(&video_subsystem, "Tilemap", 256, 384, 2.0, 2.0);
+    let main_display = Display::new(&video_subsystem, "Main", 320, 288, 2.0, 2.0);
     let event_pump = sdl_context.event_pump().expect("start event_pump");
     let mut mem = Memory::new(&cart.data);
-    mem[0xFF0F] = 0xE1; // Interrupt request
-    mem[0xFFFF] = 0x00; // Interrupt mask
-    mem[0xFF00] = 0xFF; // joypad
-    mem[0xFF40] = 0x91; // LCDC
+    mem.initialize(0xFF0F, 0xE1); // Interrupt request
+    mem.initialize(0xFFFF, 0x00); // Interrupt mask
+    mem.initialize(0xFF00, 0xFF); // joypad
+    mem.initialize(0xFF40, 0x91); // LCDC
+    mem.initialize(0xFF47, 0xFC); // BGP
 
     return Console { 
       memory: mem, 
@@ -111,17 +112,17 @@ impl Console {
     self.current_div_tick = (self.current_div_tick + 1) % 256;
     if self.current_div_tick == 0 {
       // TODO: This is reset when executing a stop instruction
-      self.memory[0xFF04] = self.memory[0xFF04].wrapping_add(1);
+      self.memory.set(0xFF04, self.memory[0xFF04].wrapping_add(1));
     }
 
     if timer_enabled {
       self.current_timer_tick = (self.current_timer_tick + 1) % divider;
       if self.current_timer_tick == 0 {
         if self.memory[0xFF05] == 0xFF {
-          self.memory[0xFF05] = self.memory[0xFF06];
-          self.memory[0xFF0F] = self.memory[0xFF0F] | 0b100;
+          self.memory.set(0xFF05, self.memory[0xFF06]);
+          self.memory.set(0xFF0F, self.memory[0xFF0F] | 0b100);
         } else {
-          self.memory[0xFF05] = self.memory[0xFF05].wrapping_add(1);
+          self.memory.set(0xFF05, self.memory[0xFF05].wrapping_add(1));
         }
       }
     }
@@ -139,9 +140,6 @@ impl Console {
       return true;
     }
 
-    // TODO: This is just a hack to ensure the joypad comes up as "nothing pressed" to unscrew tetris but this location should reflect gamepad state.
-    self.memory[0xFF00] = 0xFF;
-
     self.update_timer_registers();
     let instr_run = self.cpu.tick(&mut self.memory, true);
     let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
@@ -155,8 +153,8 @@ impl Console {
 
       for i in (0x8000..0x97FF).step_by(16) {
         let tile_index = (i - 0x8000) / 16;
-        let tile_row = tile_index / 20;
-        let tile_col = tile_index % 20;
+        let tile_row = tile_index / 16;
+        let tile_col = tile_index % 16;
 
         for b in (i..(i + 16)).step_by(2) {
           let row = (b - i) / 2;

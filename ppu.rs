@@ -15,97 +15,19 @@ pub struct Ppu {
   // TODO: use this to prevent interrupts when one was sent for the previous mode
   stat_sent_last_mode: bool,
   window_line: u16,
-  curr_line_objects: Vec<ObjectAttribute>
+  curr_line_objects: Vec<ObjectAttribute>,
+  obj_size_16: bool,
 }
 
 impl Ppu {
   pub fn new() -> Ppu {
-    return Ppu { lx: 0, stat_sent_last_mode: false, window_line: 0, curr_line_objects: vec![] };
+    return Ppu { lx: 0, stat_sent_last_mode: false, window_line: 0, 
+      curr_line_objects: vec![], obj_size_16: true };
   }
 
   // each tick is one dot, so 1 TCycle
   pub fn tick(&mut self, memory: &mut Memory, display: &mut Display) -> bool {
     let mut has_frame = false;
-
-    // Set STAT LYC=LY flag if LY == LYC
-    if memory[0xFF44] == memory[0xFF45] {
-      memory[0xFF41] = (memory[0xFF41] & !0b100) | 0b100;
-      if self.lx == 0 {
-        // Also send the STAT interrupt if the source is enabled
-        if memory[0xFF41] & 0b1000000 != 0 {
-          memory[0xFF0F] |= 0b10;
-        }
-      }
-    } else {
-      memory[0xFF41] = memory[0xFF41] & !0b100;
-    }
-
-    if self.lx == 0 {
-      if memory[0xFF44] == 144 {
-        // VBLANK request interrupt
-        memory[0xFF0F] = memory[0xFF0F] | 0x01;
-        // Set STAT mode flag to VBLANK
-        memory[0xFF41] = (memory[0xFF41] & !0b11) | 1;
-
-        // Also send the STAT interrupt if it's enabled
-        if memory[0xFF41] & 0b10000 != 0 {
-          memory[0xFF0F] |= 0b10;
-        }
-
-        has_frame = true;
-      } else {
-        // OAM search for 80 dots
-        // Set STAT mode flag to OAM search
-        memory[0xFF41] = (memory[0xFF41] & !0b11) | 2;
-
-        // Send STAT if enabled
-        if memory[0xFF41] & 0b100000 != 0 {
-          memory[0xFF0F] |= 0b10;
-        }
-
-        // Perform all of OAM search here if obj is enabled
-        self.curr_line_objects.clear();
-        if memory[0xFF40] & 0b10 != 0 {
-          for i in (0xFE00..0xFE9F).step_by(4) {
-            let is_16_tall = memory[0xFF40] & 0b100 == 1;
-
-            if memory[i] >= 160 {
-              continue;
-            }
-
-            let y_min = memory[i];
-            let y_max = y_min + if is_16_tall { 16 } else { 8 };
-
-            if memory[0xFF44] + 16 >= y_min && memory[0xFF44] + 16 < y_max {
-              // Object is on line
-              self.curr_line_objects.push(ObjectAttribute {
-                y: memory[i],
-                x: memory[i + 1],
-                tile_idx: memory[i + 2] & if is_16_tall { 0xFE } else { 0xFF },
-                attributes: memory[i + 3],
-              });
-
-              if self.curr_line_objects.len() == 10 {
-                break;
-              }
-            }
-          }
-        }
-      }
-    } else if self.lx == 80 && memory[0xFF44] < 144 {
-      // Mode 3
-      // Set STAT mode flag to mode 3
-      memory[0xFF41] = (memory[0xFF41] & !0b11) | 3;
-    } else if self.lx == 252 && memory[0xFF44] < 144 {
-      // HBLANK, TODO: this isn't correct when mode 3 is lengthened
-      // Set STAT mode flag to HBLANK
-      memory[0xFF41] = (memory[0xFF41] & !0b11) | 0;
-
-      // Send STAT if enabled
-      if memory[0xFF41] & 0b1000 != 0 {
-        memory[0xFF0F] |= 0b10;
-      }
-    }
 
     let mode = memory[0xFF41] & 0b11;
     match mode {
@@ -116,7 +38,38 @@ impl Ppu {
         // VBLANK, do nothing
       },
       2 => {
-        // Searching OAM, not implemented yet
+        if self.lx == 79 {
+          // Perform all of OAM search on the last dot if obj is enabled/
+          // TODO: This is incorrect, but since some things write to registers during OAM search,
+          //       it's probably more useful to do the search at the end than at the start of the interval.
+          self.curr_line_objects.clear();
+          if memory[0xFF40] & 0b10 != 0 {
+            for i in (0xFE00..0xFE9F).step_by(4) {
+              self.obj_size_16 = (memory[0xFF40] & 0b100) != 0;
+
+              if memory[i] >= 160 {
+                continue;
+              }
+
+              let y_min = memory[i];
+              let y_max = y_min + if self.obj_size_16 { 16 } else { 8 };
+
+              if memory[0xFF44] + 16 >= y_min && memory[0xFF44] + 16 < y_max {
+                // Object is on line
+                self.curr_line_objects.push(ObjectAttribute {
+                  y: memory[i],
+                  x: memory[i + 1],
+                  tile_idx: memory[i + 2] & if self.obj_size_16 { 0xFE } else { 0xFF },
+                  attributes: memory[i + 3],
+                });
+
+                if self.curr_line_objects.len() == 10 {
+                  break;
+                }
+              }
+            }
+          }
+        }
       },
       3 => {
         if self.lx == 80 {
@@ -137,6 +90,8 @@ impl Ppu {
             0x9C00
           };
 
+          let mut debug_pixel_color: Option<Color> = None;
+
           // Approximate whatever shittery the PPU and Pixel FIFOs do
           // by generating a full line right now.
           let screen_y = memory[0xFF44] as u16;
@@ -151,7 +106,7 @@ impl Ppu {
 
             let mut color = 0;
             
-            // We only draw window/bg for now, so draw blank if they are disabled.
+            // Draw BG/Window
             if memory[0xFF40] & 1 != 0 {
               let tile_id = if is_window {
                 memory[window_tile_map_addr + 
@@ -211,21 +166,28 @@ impl Ppu {
                 let mut y_offset = screen_y + 16 - obj.y as u16;
                 let x_offset = screen_x + 8 - obj.x as u16;
 
-                // No need to check for the y coord to be inside the object, it wouldn't be in the vector if it wasn't
-                let tile_addr = 0x8000 + (obj.tile_idx as u16 + if y_offset > 7 { 1 } else { 0 }) * 16;
-                y_offset = y_offset % 8;
-
                 let h_flip = obj.attributes & 0b100000 != 0;
                 let v_flip = obj.attributes & 0b1000000 != 0;
 
+                let corrected_tile_id = obj.tile_idx as u16 +
+                  if (!v_flip && y_offset > 7) || (self.obj_size_16 && v_flip && y_offset < 8) { 
+                    1 
+                  } else { 
+                    0
+                  };
+
+                // No need to check for the y coord to be inside the object, it wouldn't be in the vector if it wasn't
+                let tile_addr = 0x8000 + corrected_tile_id * 16;
+                y_offset = y_offset % 8;
+
                 let lsb = if v_flip {
-                  memory[tile_addr + 15 - (2 * y_offset as u16)]
+                  memory[tile_addr + 15 - (2 * y_offset as u16) - 1]
                 } else {
                   memory[tile_addr + (2 * y_offset as u16)]
                 };
 
                 let msb = if v_flip {
-                  memory[tile_addr + 15 - (2 * y_offset as u16) - 1]
+                  memory[tile_addr + 15 - (2 * y_offset as u16)]
                 } else {
                   memory[tile_addr + (2 * y_offset as u16) + 1]
                 };
@@ -240,6 +202,7 @@ impl Ppu {
                   let mask = 1 << x_offset;
                   let color_idx = ((lsb & mask) >> x_offset) |
                               ((msb & mask) >> x_offset << 1);
+
                   if color_idx != 0 {
                     color = (memory[palette_addr] >> (color_idx * 2)) & 0b11;
                   }
@@ -254,27 +217,35 @@ impl Ppu {
               }
             }
             
-            // TODO: lookup palettes
-            let p: sdl2::rect::Point = sdl2::rect::Point::new(screen_x as i32, screen_y as i32);
-            match color {
-              0b00 => {
-                display.c.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));
+            match debug_pixel_color {
+              Some(c) => {
+                let p: sdl2::rect::Point = sdl2::rect::Point::new(screen_x as i32, screen_y as i32);
+                display.c.set_draw_color(c);
                 display.c.draw_point(p).unwrap();
               },
-              0b01 => {
-                display.c.set_draw_color(Color::RGB(0xAA, 0xAA, 0xAA));
-                display.c.draw_point(p).unwrap();
+              None => {
+                let p: sdl2::rect::Point = sdl2::rect::Point::new(screen_x as i32, screen_y as i32);
+                match color {
+                  0b00 => {
+                    display.c.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));
+                    display.c.draw_point(p).unwrap();
+                  },
+                  0b01 => {
+                    display.c.set_draw_color(Color::RGB(0xAA, 0xAA, 0xAA));
+                    display.c.draw_point(p).unwrap();
+                  },
+                  0b10 => {
+                    display.c.set_draw_color(Color::RGB(0x55, 0x55, 0x55));
+                    display.c.draw_point(p).unwrap();
+                  },
+                  0b11 => {
+                    display.c.set_draw_color(Color::RGB(0x00, 0x00, 0x00));
+                    display.c.draw_point(p).unwrap();
+                  },
+                  _ => panic!("Impossible color"),
+                };
               },
-              0b10 => {
-                display.c.set_draw_color(Color::RGB(0x55, 0x55, 0x55));
-                display.c.draw_point(p).unwrap();
-              },
-              0b11 => {
-                display.c.set_draw_color(Color::RGB(0x00, 0x00, 0x00));
-                display.c.draw_point(p).unwrap();
-              },
-              _ => panic!("Impossible color"),
-            };
+            }
           }
         }
       },
@@ -285,7 +256,58 @@ impl Ppu {
 
     self.lx = (self.lx + 1) % 456;
     if self.lx == 0 {
-      memory[0xFF44] = (memory[0xFF44] + 1) % 154;
+      memory.set(0xFF44, (memory[0xFF44] + 1) % 154);
+    }
+
+    // Set STAT LYC=LY flag if LY == LYC
+    if memory[0xFF44] == memory[0xFF45] {
+      memory.set(0xFF41, memory[0xFF41] | 0b100);
+      if self.lx == 0 {
+        // Also send the STAT interrupt if the source is enabled
+        if memory[0xFF41] & 0b1000000 != 0 {
+          memory.set(0xFF0F, memory[0xFF0F] | 0b10);
+        }
+      }
+    } else {
+      memory.set(0xFF41, memory[0xFF41] & !0b100);
+    }
+
+    if self.lx == 0 {
+      if memory[0xFF44] == 144 {
+        // VBLANK request interrupt
+        memory.set(0xFF0F, memory[0xFF0F] | 0x01);
+        // Set STAT mode flag to VBLANK
+        memory.set(0xFF41, (memory[0xFF41] & !0b11) | 1);
+
+        // Also send the STAT interrupt if it's enabled
+        if memory[0xFF41] & 0b10000 != 0 {
+          memory.set(0xFF0F, memory[0xFF0F] | 0b10);
+        }
+
+        has_frame = true;
+      } else {
+        // OAM search for 80 dots
+        // Set STAT mode flag to OAM search
+        memory.set(0xFF41, (memory[0xFF41] & !0b11) | 2);
+
+        // Send STAT if enabled
+        if memory[0xFF41] & 0b100000 != 0 {
+          memory.set(0xFF0F, memory[0xFF0F] | 0b10);
+        }
+      }
+    } else if self.lx == 80 && memory[0xFF44] < 144 {
+      // Mode 3
+      // Set STAT mode flag to mode 3
+      memory.set(0xFF41, (memory[0xFF41] & !0b11) | 3);
+    } else if self.lx == 369 && memory[0xFF44] < 144 {
+      // HBLANK, TODO: this isn't correct when mode 3 is lengthened
+      // Set STAT mode flag to HBLANK
+      memory.set(0xFF41, memory[0xFF41] & !0b11);
+
+      // Send STAT if enabled
+      if memory[0xFF41] & 0b1000 != 0 {
+        memory.set(0xFF0F, memory[0xFF0F] | 0b10);
+      }
     }
 
     return has_frame;

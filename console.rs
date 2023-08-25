@@ -141,6 +141,7 @@ impl Console {
     }
 
     self.update_timer_registers();
+    self.memory.tick();
     let instr_run = self.cpu.tick(&mut self.memory, true);
     let has_frame = self.ppu.tick(&mut self.memory, &mut self.main_display);
 

@@ -2,6 +2,7 @@ pub struct Memory {
   rom_banks: std::vec::Vec<std::vec::Vec<u8>>,
   m: std::vec::Vec<u8>,
   current_bank: usize,
+  dma_in_progress_addr: Option<u16>,
 }
 
 impl Memory {
@@ -20,6 +21,7 @@ impl Memory {
       rom_banks: banks, 
       m: vec![0; 0xFFFF - 0x8000 + 1],
       current_bank: 1,
+      dma_in_progress_addr: None,
     };
   }
 
@@ -36,7 +38,33 @@ impl Memory {
       rom_banks: banks, 
       m: vec![0; 0xFFFF - 0x8000 + 1],
       current_bank: 1,
+      dma_in_progress_addr: None,
     };
+  }
+
+  pub fn tick(&mut self) {
+    if self.dma_in_progress_addr.is_none() {
+      return;
+    }
+
+    let addr = match self.dma_in_progress_addr {
+      Some(a) => {
+        a
+      },
+      _ => { panic!("DMA"); }
+    };
+
+    let byte = self[addr];
+    let dest = 0xFE00 | (addr & 0xFF);
+    self.m[(dest - 0x8000) as usize] = byte;
+
+    let next = addr + 1;
+
+    if next & 0xFF > 0x9F {
+      self.dma_in_progress_addr = None;
+    } else {
+      self.dma_in_progress_addr = Some(addr + 1);
+    }
   }
 
   pub fn initialize(&mut self, addr: u16, val: u8) {
@@ -45,8 +73,16 @@ impl Memory {
 
   fn special_set(&mut self, addr: u16, val: u8) -> bool {
     match addr {
+      0..=0x7FFF => {
+        // TODO: Some of this range triggers things, but it's ROM so writing to it can't go through.
+        return true;
+      },
       0xFF00 => {
         self.m[(addr - 0x8000) as usize] = (self.m[(addr - 0x8000) as usize] & 0b00001111) | (val & 0b11110000);
+        return true;
+      },
+      0xFF46 => {
+        self.dma_in_progress_addr = Some((val as u16) << 8);
         return true;
       },
       _ => {
